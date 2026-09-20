@@ -9,8 +9,10 @@ terraform {
   backend "s3" {
     key = "monitoring-lab/terraform.tfstate"
 
-    # Dummy region. Hetzner ignores it; the SDK insists on one.
-    region = "eu-central"
+    # `region` is passed at init with -backend-config, derived from the
+    # endpoint. It is NOT a dummy: Hetzner rejects CreateBucket with
+    # LocationConstraintConflict unless the client region equals the bucket's
+    # location, so "nbg1" endpoint means "nbg1" region.
 
     skip_credentials_validation = true # no AWS STS to call
     skip_region_validation      = true # "eu-central" is not an AWS region

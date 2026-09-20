@@ -23,7 +23,6 @@ permissions:
 env:
   AWS_ACCESS_KEY_ID: ${{ secrets.HCLOUD_S3_ACCESS_KEY }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.HCLOUD_S3_SECRET_KEY }}
-  AWS_DEFAULT_REGION: eu-central
   BUCKET: ${{ vars.TF_STATE_BUCKET }}
   ENDPOINT: ${{ vars.TF_STATE_ENDPOINT }}
 
@@ -42,13 +41,28 @@ jobs:
             exit 1
           fi
 
+      - name: Derive the Object Storage region from the endpoint
+        id: region
+        run: |
+          set -euo pipefail
+          # https://nbg1.your-objectstorage.com -> nbg1
+          host="${ENDPOINT#*://}"
+          region="${host%%.*}"
+          if [ -z "$region" ] || [ "$region" = "$host" ]; then
+            echo "::error::could not derive a region from TF_STATE_ENDPOINT='$ENDPOINT'"
+            exit 1
+          fi
+          echo "region=$region" >> "$GITHUB_OUTPUT"
+          echo "AWS_DEFAULT_REGION=$region" >> "$GITHUB_ENV"
+          echo "derived region: $region"
+
       - name: Create the bucket if it is missing
         run: |
           set -euo pipefail
           if aws s3api head-bucket --bucket "$BUCKET" --endpoint-url "$ENDPOINT" 2>/dev/null; then
             echo "bucket $BUCKET already exists, nothing to do"
           else
-            aws s3api create-bucket --bucket "$BUCKET" --endpoint-url "$ENDPOINT"
+            aws s3api create-bucket --bucket "$BUCKET" --endpoint-url "$ENDPOINT" --region "$AWS_DEFAULT_REGION"
             echo "created $BUCKET"
           fi
 
