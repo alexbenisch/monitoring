@@ -55,7 +55,7 @@ jobs:
       # Must be first: defaults.run.working-directory points at infra/, which
       # does not exist until the repo is checked out. Any `run:` step before
       # this one fails with "No such file or directory".
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Refuse an unconfirmed destroy
         if: github.event.inputs.action == 'destroy' && github.event.inputs.confirm != 'destroy'
@@ -80,7 +80,7 @@ jobs:
           [ "$missing" -eq 0 ] || exit 1
 
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: '1.15.9'   # matches the local install; newer CI would write state the local CLI rejects
           terraform_wrapper: false
@@ -136,7 +136,7 @@ jobs:
 
       - name: Comment the plan on the PR
         if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
