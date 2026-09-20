@@ -6,7 +6,11 @@ data "cloudflare_zones" "lab" {
 }
 
 locals {
-  zone_id = one(data.cloudflare_zones.lab.result).id
+  # Splat the ids rather than one(result).id: taking the whole zone object
+  # materialises its deprecated `plan` attribute and every plan prints a
+  # deprecation warning for a field this config never reads. one() still
+  # enforces "exactly one zone matched".
+  zone_id = one(data.cloudflare_zones.lab.result[*].id)
 
   # Proxied records must use ttl = 1 ("automatic"); Cloudflare rejects anything
   # else. 300 keeps the unproxied case re-pointable quickly.
