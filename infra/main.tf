@@ -5,6 +5,18 @@ locals {
   ssh_public_key = trimspace(var.ssh_public_key)
 }
 
+# TEMPORARY. This key was uploaded to the project by hand before Terraform
+# existed, and Hetzner enforces uniqueness on the fingerprint, so creating it
+# again fails with 409 uniqueness_error. Adopt the existing object instead.
+#
+# Remove this block once the apply has run - import blocks are meant to be
+# deleted after they have done their job, and a stale one breaks the next
+# apply after a destroy, when id 130249897 no longer exists.
+import {
+  to = hcloud_ssh_key.admin
+  id = "130249897"
+}
+
 resource "hcloud_ssh_key" "admin" {
   name       = "${var.server_name}-admin"
   public_key = local.ssh_public_key
