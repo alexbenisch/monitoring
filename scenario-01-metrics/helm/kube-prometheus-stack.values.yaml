@@ -5,6 +5,15 @@ fullnameOverride: kube-prom-stack
 
 # --- Prometheus ---------------------------------------------------------
 prometheus:
+  # Exposed onto the tailnet by the Tailscale Kubernetes operator. The operator
+  # watches Services for this annotation and runs a proxy Pod for each one, so
+  # the address follows the Service and survives Pod restarts - unlike
+  # `kubectl port-forward`, which dies with its target Pod.
+  service:
+    annotations:
+      tailscale.com/expose: "true"
+      tailscale.com/hostname: "prometheus"
+
   prometheusSpec:
     scrapeInterval: 15s
     evaluationInterval: 30s
@@ -42,6 +51,15 @@ prometheus:
 
 # --- Alertmanager -------------------------------------------------------
 alertmanager:
+  # Exposed onto the tailnet by the Tailscale Kubernetes operator. The operator
+  # watches Services for this annotation and runs a proxy Pod for each one, so
+  # the address follows the Service and survives Pod restarts - unlike
+  # `kubectl port-forward`, which dies with its target Pod.
+  service:
+    annotations:
+      tailscale.com/expose: "true"
+      tailscale.com/hostname: "alertmanager"
+
   alertmanagerSpec:
     resources:
       requests:
@@ -66,6 +84,15 @@ alertmanager:
 
 # --- Grafana ------------------------------------------------------------
 grafana:
+  # Exposed onto the tailnet by the Tailscale Kubernetes operator. The operator
+  # watches Services for this annotation and runs a proxy Pod for each one, so
+  # the address follows the Service and survives Pod restarts - unlike
+  # `kubectl port-forward`, which dies with its target Pod.
+  service:
+    annotations:
+      tailscale.com/expose: "true"
+      tailscale.com/hostname: "grafana"
+
   adminPassword: "obslab"   # lab only. Never do this in a real values file.
 
   defaultDashboardsTimezone: Europe/Berlin
