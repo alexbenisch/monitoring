@@ -48,14 +48,18 @@ variable "server_name" {
 
 variable "server_type" {
   description = <<-EOT
-    cx32 = 4 vCPU / 8 GB / 80 GB, ~EUR 6.80/mo.
+    cpx32 = 4 vCPU / 8 GB / 160 GB, shared x86.
 
     Scenario 01 asks for 4 vCPU / 6 GB free, and kube-prometheus-stack alone
-    reserves ~700 MB, so cx22 (2 vCPU / 4 GB) will thrash. Run the `hcloud`
-    workflow to list what is actually orderable in your project.
+    reserves ~700 MB, so a 2 vCPU / 4 GB type will thrash.
+
+    Confirmed orderable in fsn1, nbg1, hel1 and sin. cpx31 is the same
+    4 vCPU / 8 GB but was only offered in nbg1, which would break the moment
+    `location` changed. Availability is per-project and moves - re-run the
+    `hcloud` workflow with `server-types` before changing this.
   EOT
   type        = string
-  default     = "cx32"
+  default     = "cpx32"
 }
 
 variable "location" {

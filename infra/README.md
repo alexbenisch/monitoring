@@ -15,7 +15,7 @@ Nothing here is applied from a laptop.
 
 | Resource | Detail |
 |---|---|
-| `hcloud_server.lab` | `cx32` — 4 vCPU / 8 GB / 80 GB, in `nbg1`, Ubuntu 24.04 |
+| `hcloud_server.lab` | `cpx32` — 4 vCPU / 8 GB / 160 GB, in `nbg1`, Ubuntu 24.04 |
 | `hcloud_ssh_key.admin` | your public key, uploaded to the project |
 | `hcloud_firewall.lab` | inbound 22 / 80 / 443 / ICMP — **and nothing else** |
 | `cloudflare_dns_record.lab` | `app.kubetest.uk`, `monitoring.kubetest.uk` → A record |
@@ -127,6 +127,12 @@ CI is unaffected — GitHub runners have no such directory.
 
 ## Cost
 
-The `cx32` is about **EUR 6.80/month**, billed hourly. Object Storage has a
-floor of roughly **EUR 5/month** whatever the state file's size. Destroying the
-server stops the former and not the latter.
+Hetzner's prices moved during 2026, so rather than trusting a number written
+here, ask the API for the current one:
+
+```bash
+hcloud server-type describe cpx32
+```
+
+Object Storage bills a monthly minimum whatever the state file's size, so
+destroying the server stops the server cost and not the bucket cost.
