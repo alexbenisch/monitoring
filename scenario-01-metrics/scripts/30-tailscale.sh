@@ -74,12 +74,28 @@ log "adding the tailscale helm repo"
 helm repo add tailscale https://pkgs.tailscale.com/helmcharts >/dev/null 2>&1 || true
 helm repo update tailscale >/dev/null
 
+# The OAuth client goes into the Secret directly, never through --set.
+#
+# Passing it as a Helm value writes it into the release history, where it sits
+# in plaintext in sh.helm.release.v1.* and is printed by any `helm get values`.
+# The chart only renders its own oauth Secret when oauth.clientId is set, so
+# leaving that empty and supplying the Secret ourselves keeps the credential
+# out of Helm entirely.
+log "creating the operator OAuth secret in ${NS}"
+kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+kubectl -n "$NS" create secret generic operator-oauth \
+  --from-literal=client_id="$TS_OAUTH_CLIENT_ID" \
+  --from-literal=client_secret="$TS_OAUTH_CLIENT_SECRET" \
+  --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+
+# Helm would delete this Secret as a "removed resource" on the next upgrade,
+# because it is not in the rendered manifest. This annotation stops that.
+kubectl -n "$NS" annotate secret operator-oauth helm.sh/resource-policy=keep --overwrite >/dev/null
+
 log "installing the tailscale operator (chart ${CHART_VERSION}) into ${NS}"
 helm upgrade --install tailscale-operator tailscale/tailscale-operator \
-  --namespace "$NS" --create-namespace \
+  --namespace "$NS" \
   --version "$CHART_VERSION" \
-  --set-string oauth.clientId="$TS_OAUTH_CLIENT_ID" \
-  --set-string oauth.clientSecret="$TS_OAUTH_CLIENT_SECRET" \
   --set-string apiServerProxyConfig.mode="true" \
   --set-string apiServerProxyConfig.allowImpersonation="true" \
   --wait --timeout 5m
