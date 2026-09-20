@@ -1,0 +1,92 @@
+name: bootstrap-state
+
+# One-time (and idempotent) creation of the Terraform state bucket.
+#
+# This is the chicken-and-egg step: Terraform cannot create the bucket that
+# holds its own state. hcloud's CLI does not manage Object Storage either, so
+# this talks S3 directly with the same credentials the backend uses.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type the bucket name to confirm"
+        type: string
+        required: true
+
+concurrency:
+  group: terraform-infra   # same group as the terraform workflow
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.HCLOUD_S3_ACCESS_KEY }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.HCLOUD_S3_SECRET_KEY }}
+  AWS_DEFAULT_REGION: eu-central
+  BUCKET: ${{ vars.TF_STATE_BUCKET }}
+  ENDPOINT: ${{ vars.TF_STATE_ENDPOINT }}
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm
+        run: |
+          if [ "${{ inputs.confirm }}" != "${BUCKET}" ]; then
+            echo "::error::confirm must be exactly the bucket name '${BUCKET}'"
+            exit 1
+          fi
+          if [ -z "${BUCKET}" ] || [ -z "${ENDPOINT}" ]; then
+            echo "::error::TF_STATE_BUCKET and TF_STATE_ENDPOINT must both be set"
+            exit 1
+          fi
+
+      - name: Create the bucket if it is missing
+        run: |
+          set -euo pipefail
+          if aws s3api head-bucket --bucket "$BUCKET" --endpoint-url "$ENDPOINT" 2>/dev/null; then
+            echo "bucket $BUCKET already exists, nothing to do"
+          else
+            aws s3api create-bucket --bucket "$BUCKET" --endpoint-url "$ENDPOINT"
+            echo "created $BUCKET"
+          fi
+
+      - name: Enable versioning
+        run: |
+          set -euo pipefail
+          # Terraform state is the one file where "I overwrote it" is fatal.
+          # Versioning turns that into a recoverable mistake. Ceph RGW supports
+          # it, but do not fail the run if this account does not.
+          if aws s3api put-bucket-versioning \
+               --bucket "$BUCKET" \
+               --versioning-configuration Status=Enabled \
+               --endpoint-url "$ENDPOINT"; then
+            echo "versioning enabled"
+          else
+            echo "::warning::could not enable versioning - state overwrites will not be recoverable"
+          fi
+
+      - name: Confirm it is not public
+        run: |
+          set -euo pipefail
+          code=$(curl -s -o /dev/null -w '%{http_code}' "${ENDPOINT%/}/${BUCKET}/")
+          echo "anonymous GET of the bucket returned HTTP $code"
+          if [ "$code" = "200" ]; then
+            echo "::error::the bucket is publicly readable - state would be world-readable. Fix this before applying."
+            exit 1
+          fi
+
+      - name: Summary
+        run: |
+          {
+            echo "### state bucket"
+            echo ''
+            echo "| | |"
+            echo "|---|---|"
+            echo "| bucket | \`$BUCKET\` |"
+            echo "| endpoint | \`$ENDPOINT\` |"
+            echo "| versioning | see the step above |"
+            echo ''
+            echo "Next: Actions → terraform → Run workflow → \`apply\`."
+          } >> "$GITHUB_STEP_SUMMARY"
