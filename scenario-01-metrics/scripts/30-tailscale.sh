@@ -23,6 +23,16 @@
 #        }
 #   2. An OAuth client with *write* scope on "Devices Core" and "Auth Keys",
 #      tagged tag:k8s-operator.
+#   3. To use kubectl over the tailnet, a grant letting you reach the API
+#      server proxy. The proxy impersonates your tailnet identity, so without
+#      this every request is denied by RBAC:
+#        "grants": [{
+#          "src": ["autogroup:member"],
+#          "dst": ["tag:k8s-operator"],
+#          "app": {"tailscale.com/cap/kubernetes": [
+#            {"impersonate": {"groups": ["system:masters"]}}
+#          ]},
+#        }]
 # MagicDNS must be on (it is by default), and HTTPS certificates enabled if
 # you want https:// rather than http:// on the ts.net names.
 
@@ -70,6 +80,8 @@ helm upgrade --install tailscale-operator tailscale/tailscale-operator \
   --version "$CHART_VERSION" \
   --set-string oauth.clientId="$TS_OAUTH_CLIENT_ID" \
   --set-string oauth.clientSecret="$TS_OAUTH_CLIENT_SECRET" \
+  --set-string apiServerProxyConfig.mode="true" \
+  --set-string apiServerProxyConfig.allowImpersonation="true" \
   --wait --timeout 5m
 
 kubectl -n "$NS" rollout status deploy/operator --timeout=3m
