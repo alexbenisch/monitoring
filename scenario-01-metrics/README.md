@@ -48,17 +48,58 @@ chmod +x scripts/*.sh
 ```bash
 ./scripts/00-bootstrap.sh        # minikube + kube-prometheus-stack (~10 min)
 ./scripts/10-deploy-app.sh       # build image, apply manifests, start load
-./scripts/port-forward.sh        # Grafana :3000, Prometheus :9090, Alertmanager :9093
+./scripts/30-tailscale.sh        # put the UIs on your tailnet (one-time)
 ```
 
-From your workstation, tunnel rather than binding to `0.0.0.0`:
+### Access
+
+`30-tailscale.sh` installs the Tailscale Kubernetes operator, which gives each
+Service its own address on your tailnet. From any machine on the tailnet:
+
+| | |
+|---|---|
+| Grafana | <http://grafana.YOUR-TAILNET.ts.net> |
+| Prometheus | <http://prometheus.YOUR-TAILNET.ts.net:9090> |
+| Alertmanager | <http://alertmanager.YOUR-TAILNET.ts.net:9093> |
+
+Only Grafana works on the bare hostname: the operator proxies each Service's
+own port, and Grafana's Service listens on 80 while the other two are on 9090
+and 9093. `tailscale status` lists your exact names.
+
+Grafana is **admin / `obslab`**, though anonymous browsing is enabled so the
+dashboards open without logging in. Find **obs-lab / demoapp RED**.
+
+`kubectl` works from your workstation too, through the operator's API server
+proxy - no kubeconfig copying, no tunnel:
 
 ```bash
-ssh -L 3000:localhost:3000 -L 9090:localhost:9090 -L 9093:localhost:9093 user@vserver
+tailscale configure kubeconfig tailscale-operator.YOUR-TAILNET.ts.net
+kubectl --context=tailscale-operator.YOUR-TAILNET.ts.net -n demo get pods
 ```
 
-Then open <http://localhost:3000> (admin / `obslab`) and find the dashboard
-**obs-lab / demoapp RED**.
+That command sets the new context as *current*, so check
+`kubectl config current-context` before running anything destructive against
+what you assume is a different cluster.
+
+<details>
+<summary>Fallback: port-forward and an SSH tunnel</summary>
+
+Still works, and needs no tailnet, but both halves are fragile - `kubectl
+port-forward` dies with its target Pod, and a second `ssh -L` silently fails to
+bind ports the first one already holds:
+
+```bash
+./scripts/port-forward.sh        # on the host: Grafana :3000, Prom :9090, AM :9093
+
+# from your workstation, in a separate terminal
+ssh -o ExitOnForwardFailure=yes \
+    -L 3000:localhost:3000 -L 9090:localhost:9090 -L 9093:localhost:9093 user@vserver
+```
+
+`ExitOnForwardFailure=yes` turns a half-bound tunnel into a refused connection
+instead of a session where some ports work and others reset.
+
+</details>
 
 Reset to a clean baseline at any point:
 
@@ -538,6 +579,29 @@ Re-run `minikube image load obs-lab/demoapp:1.0.0 -p obs-lab`, and confirm
 to be in the `docker` group. Nested virtualisation is a common vserver limitation —
 stick to `--driver=docker`.
 
+**Nothing is reachable after a reboot.** minikube creates its node container
+with `RestartPolicy=no`, so a restart leaves it `Exited(137)`: Docker comes
+back, the cluster does not, and the tailnet names go with it. The
+`minikube.service` unit in `infra/files/` fixes this permanently —
+`systemctl status minikube` on the host says whether it ran.
+
+**Tailnet hostname does not resolve or times out.** Check the device is
+actually up (`tailscale status | grep grafana`), then that you used the right
+port — only Grafana answers on the bare hostname; Prometheus needs `:9090` and
+Alertmanager `:9093`. A *first* request can also time out while Tailscale
+issues the TLS certificate; retry once.
+
+**`kubectl` says Forbidden through the API server proxy.** The proxy
+impersonates your tailnet identity, so Kubernetes needs to know who that is.
+`kubectl auth whoami` shows the groups you actually have; if it lists only
+`system:authenticated`, the grant is missing or in the wrong place. `grants` is
+a **top-level** key in the Tailscale policy file, a sibling of `acls` — nested
+inside `acls` it parses fine and does nothing.
+
+**`kubectl` connection refused right after restarting the operator.** The API
+server proxy runs in-process in the operator, so restarting it removes the path
+you are using. It returns on its own; keep SSH available before you restart it.
+
 **Rule changes not taking effect.** The Operator reloads config on a timer.
 `kubectl -n monitoring logs sts/prometheus-kube-prom-stack-prometheus -c config-reloader`
 shows when it last happened.
@@ -569,7 +633,7 @@ scenario-01-metrics/
 │   ├── prometheusrule.yaml recording rules + 3 alerts
 │   ├── loadgen.yaml        weighted traffic generator
 │   └── dashboards/         RED dashboard, loaded via labelled ConfigMap
-└── scripts/                bootstrap, deploy, chaos, port-forward, teardown
+└── scripts/                bootstrap, deploy, tailscale, chaos, port-forward, teardown
 ```
 
 ---
