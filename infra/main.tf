@@ -1,6 +1,13 @@
+locals {
+  # `gh variable set NAME < file` stores the file's trailing newline too. The
+  # Hetzner API is picky about a key with trailing whitespace, and it would
+  # otherwise show up as a permanent diff on every plan.
+  ssh_public_key = trimspace(var.ssh_public_key)
+}
+
 resource "hcloud_ssh_key" "admin" {
   name       = "${var.server_name}-admin"
-  public_key = var.ssh_public_key
+  public_key = local.ssh_public_key
 }
 
 resource "hcloud_firewall" "lab" {
@@ -55,7 +62,7 @@ resource "hcloud_server" "lab" {
   }
 
   user_data = templatefile("${path.module}/cloud-init.yaml", {
-    ssh_public_key = var.ssh_public_key
+    ssh_public_key = local.ssh_public_key
   })
 
   labels = {

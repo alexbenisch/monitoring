@@ -2,6 +2,13 @@ variable "hcloud_token" {
   description = "Hetzner Cloud API token, Read & Write. From TF_VAR_hcloud_token."
   type        = string
   sensitive   = true
+
+  validation {
+    # The provider enforces this anyway, but it fails after init has already
+    # touched remote state. A truncated paste is the common case.
+    condition     = length(var.hcloud_token) == 64
+    error_message = "hcloud_token must be exactly 64 characters. Check the HCLOUD_TOKEN secret was not truncated when pasted."
+  }
 }
 
 variable "cloudflare_api_token" {
@@ -66,8 +73,16 @@ variable "ssh_public_key" {
   description = <<-EOT
     Your SSH public key, verbatim. Public keys are not secrets, so this comes
     from a repo *variable* (SSH_PUBLIC_KEY), not a repo secret.
+
+    `gh variable set SSH_PUBLIC_KEY < key.pub` keeps the file's trailing
+    newline, so this is trimmed before use - see local.ssh_public_key.
   EOT
   type        = string
+
+  validation {
+    condition     = can(regex("^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)) AAAA[0-9A-Za-z+/=]+", trimspace(var.ssh_public_key)))
+    error_message = "ssh_public_key must be an OpenSSH public key (ssh-ed25519, ssh-rsa or ecdsa-sha2-nistp*). A private key, a .pem, or a raw GPG export will not work - use `gpg --export-ssh-key <keyid>` for a GPG auth subkey."
+  }
 }
 
 variable "ssh_allowed_ips" {

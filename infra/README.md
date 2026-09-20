@@ -59,6 +59,21 @@ gh variable set SSH_PUBLIC_KEY    < ~/.ssh/id_ed25519.pub
 The endpoint region must match where you created the bucket — `nbg1`, `fsn1`
 or `hel1`. The workflow fails early and names anything missing.
 
+`gh variable set SSH_PUBLIC_KEY < key.pub` stores the file's **trailing
+newline** as part of the value. Terraform trims it (`local.ssh_public_key`),
+because Hetzner is picky about trailing whitespace on a key and it would
+otherwise appear as a permanent diff on every plan. A GPG authentication
+subkey works fine — export it in OpenSSH form first:
+
+```bash
+gpg --export-ssh-key 0xYOURKEYID > ~/.ssh/gpg-auth.pub
+```
+
+Both variables are sanity-checked before anything runs: the key must be a real
+OpenSSH public key (a private key, a `.pem` or raw PGP armor is rejected with a
+useful message), and `HCLOUD_TOKEN` must be exactly 64 characters, which is the
+usual symptom of a truncated paste.
+
 ## Running it
 
 | Want | Do |
