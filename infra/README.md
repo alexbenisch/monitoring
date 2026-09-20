@@ -100,6 +100,30 @@ Runs are serialised by a `concurrency` group. The backend also sets
 write with a 501, delete that line in `backend.tf` — the concurrency group is
 the guard that actually matters here.
 
+## On the lab host
+
+Clone over **HTTPS**, not SSH:
+
+```bash
+git clone https://github.com/alexbenisch/monitoring.git
+```
+
+The repo is public, so this needs no credentials. `git@github.com:...` fails
+with `Permission denied (publickey)` because the key that authenticates you to
+the server lives on your laptop - the server has no private key GitHub knows,
+and putting one there would be worse than the problem.
+
+To push from the host, forward your agent for that session instead
+(`ssh -A lab@<ip>`), remembering that root on the host can then use your agent
+for as long as it is connected.
+
+cloud-init runs `package_upgrade`, so the box is busy for a few minutes after
+first boot. Wait for the marker before running the scenario:
+
+```bash
+until [ -f /var/lib/cloud/obs-lab-ready ]; do sleep 5; done
+```
+
 ## Two things that will bite you
 
 **The Cloudflare provider is v5, and v5 renamed things.** `cloudflare_record`
