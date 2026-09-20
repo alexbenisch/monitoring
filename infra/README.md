@@ -15,7 +15,7 @@ Nothing here is applied from a laptop.
 
 | Resource | Detail |
 |---|---|
-| `hcloud_server.lab` | `cx32` — 4 vCPU / 8 GB / 80 GB, in `nbg1`, Ubuntu 24.04 |
+| `hcloud_server.lab` | `cpx32` — 4 vCPU / 8 GB / 160 GB, in `nbg1`, Ubuntu 24.04 |
 | `hcloud_ssh_key.admin` | your public key, uploaded to the project |
 | `hcloud_firewall.lab` | inbound 22 / 80 / 443 / ICMP — **and nothing else** |
 | `cloudflare_dns_record.lab` | `app.kubetest.uk`, `monitoring.kubetest.uk` → A record |
@@ -34,10 +34,10 @@ ssh -L 3000:localhost:3000 -L 9090:localhost:9090 -L 9093:localhost:9093 lab@<ip
 
 ## One-time setup
 
-**1. Create the state bucket.** Hetzner Console → Object Storage → create a
-bucket (e.g. `tfstate-obs-lab`) and generate S3 credentials for it. The bucket
-must be **private**; state contains the server IP and every value Terraform
-touched.
+**1. Create the S3 credentials.** Hetzner Console → Object Storage → generate
+an access key pair. Terraform cannot create the bucket that holds its own
+state, and `hcloud`'s CLI does not manage Object Storage, so the bucket itself
+is made by the **bootstrap-state** workflow below.
 
 **2. Secrets** — already set, verify with `gh secret list`:
 
@@ -73,6 +73,15 @@ Both variables are sanity-checked before anything runs: the key must be a real
 OpenSSH public key (a private key, a `.pem` or raw PGP armor is rejected with a
 useful message), and `HCLOUD_TOKEN` must be exactly 64 characters, which is the
 usual symptom of a truncated paste.
+
+**4. Create the state bucket.** Actions → **bootstrap-state** → Run workflow,
+typing the bucket name to confirm. It creates the bucket if missing, turns on
+versioning (state is the one file where an overwrite is fatal), and fails if
+the bucket answers anonymous reads.
+
+Note `workflow_dispatch` only offers workflows that exist on the **default
+branch** — a workflow added on a feature branch will not appear in the Actions
+UI until it is merged.
 
 ## Running it
 
@@ -127,6 +136,12 @@ CI is unaffected — GitHub runners have no such directory.
 
 ## Cost
 
-The `cx32` is about **EUR 6.80/month**, billed hourly. Object Storage has a
-floor of roughly **EUR 5/month** whatever the state file's size. Destroying the
-server stops the former and not the latter.
+Hetzner's prices moved during 2026, so rather than trusting a number written
+here, ask the API for the current one:
+
+```bash
+hcloud server-type describe cpx32
+```
+
+Object Storage bills a monthly minimum whatever the state file's size, so
+destroying the server stops the server cost and not the bucket cost.
