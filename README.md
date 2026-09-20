@@ -11,4 +11,12 @@ Observability lab — self-contained scenarios, each building on the last.
 
 Later scenarios reuse the Grafana and the demo app from scenario 01.
 
+## Infrastructure
+
+[`infra/`](infra/README.md) — Terraform for the Hetzner lab host and its
+Cloudflare DNS (`app.kubetest.uk`, `monitoring.kubetest.uk`), applied from
+GitHub Actions only. Plans appear on PRs; applies and destroys are manual
+`workflow_dispatch` runs. The `hcloud` workflow answers what is orderable and
+what is running.
+
 [REFERENCES.md](REFERENCES.md) — upstream repos and tutorials to steal from.

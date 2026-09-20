@@ -1,0 +1,164 @@
+name: terraform
+
+on:
+  pull_request:
+    paths: ['infra/**', '.github/workflows/terraform.yml']
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'What to run'
+        type: choice
+        required: true
+        default: plan
+        options: [plan, apply, destroy]
+      confirm:
+        description: "Destroy only: type the word destroy"
+        type: string
+        required: false
+        default: ''
+
+# Hetzner Object Storage may or may not honour the backend's conditional-write
+# lock. This is the guard that definitely works: never two runs at once, and
+# never cancel one midway - a cancelled apply leaves state and reality apart.
+concurrency:
+  group: terraform-infra
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  TF_IN_AUTOMATION: '1'
+  TF_INPUT: '0'
+
+  # Terraform reads var.hcloud_token / var.cloudflare_api_token from these.
+  TF_VAR_hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
+  TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  TF_VAR_ssh_public_key: ${{ vars.SSH_PUBLIC_KEY }}
+
+  # The S3 backend speaks AWS env vars. Your Hetzner Object Storage keys are
+  # stored under their own names and mapped here rather than renamed.
+  AWS_ACCESS_KEY_ID: ${{ secrets.HCLOUD_S3_ACCESS_KEY }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.HCLOUD_S3_SECRET_KEY }}
+  AWS_DEFAULT_REGION: eu-central
+
+jobs:
+  terraform:
+    name: ${{ github.event.inputs.action || 'plan' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra
+
+    steps:
+      - name: Refuse an unconfirmed destroy
+        if: github.event.inputs.action == 'destroy' && github.event.inputs.confirm != 'destroy'
+        run: |
+          echo "::error::Destroy requires the confirm field to be exactly 'destroy'. Got: '${{ github.event.inputs.confirm }}'"
+          exit 1
+
+      - name: Check required configuration is present
+        run: |
+          missing=0
+          for pair in \
+            "HCLOUD_TOKEN:${{ secrets.HCLOUD_TOKEN != '' }}" \
+            "CLOUDFLARE_API_TOKEN:${{ secrets.CLOUDFLARE_API_TOKEN != '' }}" \
+            "HCLOUD_S3_ACCESS_KEY:${{ secrets.HCLOUD_S3_ACCESS_KEY != '' }}" \
+            "HCLOUD_S3_SECRET_KEY:${{ secrets.HCLOUD_S3_SECRET_KEY != '' }}" \
+            "vars.SSH_PUBLIC_KEY:${{ vars.SSH_PUBLIC_KEY != '' }}" \
+            "vars.TF_STATE_BUCKET:${{ vars.TF_STATE_BUCKET != '' }}" \
+            "vars.TF_STATE_ENDPOINT:${{ vars.TF_STATE_ENDPOINT != '' }}" ; do
+            name="${pair%%:*}"; set="${pair##*:}"
+            if [ "$set" != "true" ]; then echo "::error::$name is not set"; missing=1; fi
+          done
+          [ "$missing" -eq 0 ] || exit 1
+
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.15.9'   # matches the local install; newer CI would write state the local CLI rejects
+          terraform_wrapper: false
+
+      - name: terraform fmt
+        run: terraform fmt -check -recursive -diff
+
+      - name: terraform init
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="endpoints={\"s3\":\"${{ vars.TF_STATE_ENDPOINT }}\"}" \
+            -lockfile=readonly
+
+      - name: terraform validate
+        run: terraform validate -no-color
+
+      - name: terraform plan
+        if: github.event.inputs.action != 'destroy'
+        id: plan
+        run: |
+          set -o pipefail
+          terraform plan -no-color -out=tfplan | tee plan.txt
+          echo "### terraform plan" >> "$GITHUB_STEP_SUMMARY"
+          echo '```terraform' >> "$GITHUB_STEP_SUMMARY"
+          tail -c 60000 plan.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: terraform plan (destroy)
+        if: github.event.inputs.action == 'destroy'
+        run: |
+          set -o pipefail
+          terraform plan -destroy -no-color -out=tfplan | tee plan.txt
+          echo "### terraform plan -destroy" >> "$GITHUB_STEP_SUMMARY"
+          echo '```terraform' >> "$GITHUB_STEP_SUMMARY"
+          tail -c 60000 plan.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment the plan on the PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let plan = fs.readFileSync('infra/plan.txt', 'utf8');
+            const LIMIT = 60000;
+            if (plan.length > LIMIT) {
+              plan = plan.slice(-LIMIT);
+              plan = '...output truncated, see the job summary for the rest...\n' + plan;
+            }
+            const body = [
+              '#### `terraform plan`',
+              '',
+              '<details><summary>Show plan</summary>',
+              '',
+              '```terraform',
+              plan,
+              '```',
+              '',
+              '</details>',
+              '',
+              `_${context.sha.slice(0,7)} · applies are manual: Actions → terraform → Run workflow_`,
+            ].join('\n');
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body,
+            });
+
+      # Applies the saved plan, so what runs is exactly what was printed above -
+      # not a fresh plan that may have drifted since.
+      - name: terraform apply
+        if: github.event_name == 'workflow_dispatch' && (github.event.inputs.action == 'apply' || github.event.inputs.action == 'destroy')
+        run: terraform apply -no-color -auto-approve tfplan
+
+      - name: Outputs
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply'
+        run: |
+          {
+            echo "### Outputs"
+            echo '```'
+            terraform output -no-color
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

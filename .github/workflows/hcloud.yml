@@ -1,0 +1,108 @@
+name: hcloud
+
+# Read-only inventory plus the two power actions, for the questions Terraform
+# cannot answer: what is orderable in this project right now, what does the
+# server actually cost, is it up.
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'What to look at'
+        type: choice
+        required: true
+        default: status
+        options:
+          - status          # servers, their IPs and state
+          - server-types    # what is orderable, and what is deprecated
+          - locations       # datacentres and availability
+          - images          # OS images
+          - ssh-keys        # keys in the project
+          - firewalls       # rules as Hetzner sees them, not as Terraform wrote them
+          - poweron
+          - poweroff        # hard power cut, not a shutdown
+      server:
+        description: 'Server name, for poweron/poweroff'
+        type: string
+        required: false
+        default: obs-lab
+
+concurrency:
+  group: hcloud-${{ github.event.inputs.action }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+  HCLOUD_CLI_VERSION: '1.68.0'
+
+jobs:
+  hcloud:
+    name: ${{ github.event.inputs.action }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the token is set
+        run: |
+          if [ -z "${HCLOUD_TOKEN}" ]; then
+            echo "::error::HCLOUD_TOKEN secret is not set"
+            exit 1
+          fi
+
+      - name: Install hcloud CLI
+        run: |
+          set -euo pipefail
+          url="https://github.com/hetznercloud/cli/releases/download/v${HCLOUD_CLI_VERSION}/hcloud-linux-amd64.tar.gz"
+          curl -fsSL "$url" -o /tmp/hcloud.tar.gz
+          tar -xzf /tmp/hcloud.tar.gz -C /tmp
+          sudo install -m 0755 /tmp/hcloud /usr/local/bin/hcloud
+          hcloud version
+
+      - name: Run
+        run: |
+          set -euo pipefail
+          action='${{ github.event.inputs.action }}'
+          server='${{ github.event.inputs.server }}'
+
+          emit() {
+            {
+              echo "### hcloud $action"
+              echo ''
+              echo '```'
+              cat /tmp/out.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            cat /tmp/out.txt
+          }
+
+          case "$action" in
+            status)
+              hcloud server list -o columns=id,name,status,ipv4,ipv6,type,location,created > /tmp/out.txt ;;
+            server-types)
+              hcloud server-type list -o columns=name,cores,memory,disk,cpu_type,architecture,deprecated,location_available > /tmp/out.txt ;;
+            locations)
+              hcloud location list > /tmp/out.txt ;;
+            images)
+              hcloud image list --type system -o columns=id,name,description,architecture > /tmp/out.txt ;;
+            ssh-keys)
+              hcloud ssh-key list > /tmp/out.txt ;;
+            firewalls)
+              hcloud firewall list > /tmp/out.txt
+              for fw in $(hcloud firewall list -o noheader -o columns=name); do
+                echo "" >> /tmp/out.txt
+                echo "--- $fw ---" >> /tmp/out.txt
+                hcloud firewall describe "$fw" >> /tmp/out.txt
+              done ;;
+            poweron)
+              hcloud server poweron "$server" > /tmp/out.txt 2>&1
+              hcloud server describe "$server" >> /tmp/out.txt ;;
+            poweroff)
+              # poweroff is a power cut. `hcloud server shutdown` is the graceful
+              # one; this is here for when the box is wedged.
+              hcloud server poweroff "$server" > /tmp/out.txt 2>&1
+              hcloud server describe "$server" >> /tmp/out.txt ;;
+            *)
+              echo "::error::unknown action $action"; exit 1 ;;
+          esac
+
+          emit

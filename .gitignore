@@ -14,7 +14,8 @@ id_ed25519*
 
 # --- terraform ---
 .terraform/
-.terraform.lock.hcl
+# .terraform.lock.hcl is intentionally NOT ignored - it pins provider
+# checksums so CI resolves the same versions you did.
 terraform.tfstate
 terraform.tfstate.*
 crash.log

@@ -1,0 +1,19 @@
+# Example only. Do NOT create a real terraform.tfvars here - *.tfvars is
+# gitignored, but the tokens belong in GitHub secrets, not on disk.
+#
+# CI supplies these via TF_VAR_* environment variables:
+#   hcloud_token          <- secrets.HCLOUD_TOKEN
+#   cloudflare_api_token  <- secrets.CLOUDFLARE_API_TOKEN
+#   ssh_public_key        <- vars.SSH_PUBLIC_KEY
+
+domain    = "kubetest.uk"
+hostnames = ["app", "monitoring"]
+
+server_type = "cx32"
+location    = "nbg1"
+
+# Narrow this to your own address if it is static.
+# ssh_allowed_ips = ["203.0.113.4/32"]
+
+# Leave false: proxying breaks SSH and the port-forwarded Grafana.
+proxied = false
