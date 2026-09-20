@@ -1,0 +1,33 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Flat layout on purpose for scenario 1. From scenario 3 onward we split into
+# base/ + overlays/ and point Argo CD at the overlay.
+resources:
+  - namespace.yaml
+  - deployment.yaml
+  - service.yaml
+  - servicemonitor.yaml
+  - prometheusrule.yaml
+  - loadgen.yaml
+
+# The Grafana sidecar in kube-prometheus-stack watches for ConfigMaps labelled
+# grafana_dashboard="1" and drops their contents into Grafana. No API calls,
+# no clicking, and the dashboard is version-controlled like everything else.
+configMapGenerator:
+  - name: demoapp-dashboard
+    namespace: demo
+    files:
+      - dashboards/demoapp-red.json
+    options:
+      labels:
+        grafana_dashboard: "1"
+
+# includeSelectors: false matters. If kustomize injects these into the
+# Deployment's spec.selector you can never change them again - selectors are
+# immutable. Label metadata, not selectors.
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/part-of: obs-lab
+      obs-lab.scenario: "01-metrics"

@@ -1,0 +1,37 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: demoapp
+  namespace: demo
+  labels:
+    # kube-prometheus-stack's Prometheus CR selects ServiceMonitors with
+    # release: <helm-release-name>. Drop this label and the target silently
+    # never appears - no error anywhere. Exercise 1 makes you see that.
+    release: kube-prom-stack
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: demoapp   # matches the SERVICE labels
+  namespaceSelector:
+    matchNames:
+      - demo
+  endpoints:
+    - port: http          # the Service port NAME, not the number
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s
+      relabelings:
+        # Turn the pod name into a first-class label so you can group by pod
+        # in Grafana. Without this you only get the auto "pod" label from the
+        # pod role, which kube-prometheus-stack already adds - this shows the
+        # mechanism.
+        - sourceLabels: [__meta_kubernetes_pod_node_name]
+          targetLabel: node
+          action: replace
+      metricRelabelings:
+        # Exercise 5: your fix for the cardinality bomb goes here.
+        # Uncomment to drop the offending series at ingestion time.
+        # - sourceLabels: [__name__]
+        #   regex: demoapp_report_requests_total
+        #   action: drop
+        []

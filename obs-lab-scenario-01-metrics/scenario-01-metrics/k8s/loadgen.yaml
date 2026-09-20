@@ -1,0 +1,62 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loadgen-script
+  namespace: demo
+data:
+  loadgen.sh: |
+    #!/bin/sh
+    # Crude but honest traffic generator. Mixes the four routes at different
+    # weights so the dashboards have a realistic shape.
+    set -u
+    BASE="http://demoapp.demo.svc.cluster.local:8000"
+
+    while true; do
+      R=$(awk 'BEGIN{srand();print int(rand()*100)}')
+      if   [ "$R" -lt 45 ]; then
+        curl -s -o /dev/null "$BASE/api/items"
+      elif [ "$R" -lt 75 ]; then
+        curl -s -o /dev/null "$BASE/api/search?q=laptop"
+      elif [ "$R" -lt 92 ]; then
+        curl -s -o /dev/null -X POST "$BASE/api/checkout"
+      else
+        curl -s -o /dev/null "$BASE/api/report"
+      fi
+      sleep 0.2
+    done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loadgen
+  namespace: demo
+  labels:
+    app.kubernetes.io/name: loadgen
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: loadgen
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: loadgen
+    spec:
+      containers:
+        - name: loadgen
+          image: curlimages/curl:8.11.1
+          command: ["/bin/sh", "/scripts/loadgen.sh"]
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+      volumes:
+        - name: script
+          configMap:
+            name: loadgen-script

@@ -1,0 +1,67 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: demoapp-rules
+  namespace: demo
+  labels:
+    # Same selector story as the ServiceMonitor.
+    release: kube-prom-stack
+spec:
+  groups:
+    # --- Recording rules --------------------------------------------------
+    # Precompute the expensive expressions once per evaluation instead of on
+    # every dashboard refresh. Naming convention:
+    #   level:metric:operations
+    - name: demoapp.rules
+      interval: 30s
+      rules:
+        - record: route:demoapp_request_rate:rate5m
+          expr: sum by (route) (rate(demoapp_http_requests_total[5m]))
+
+        - record: route:demoapp_error_ratio:rate5m
+          expr: |
+            sum by (route) (rate(demoapp_http_requests_total{status=~"5.."}[5m]))
+            /
+            sum by (route) (rate(demoapp_http_requests_total[5m]))
+
+        - record: route:demoapp_latency_p99:5m
+          expr: |
+            histogram_quantile(
+              0.99,
+              sum by (route, le) (rate(demoapp_http_request_duration_seconds_bucket[5m]))
+            )
+
+    # --- Alerting rules ---------------------------------------------------
+    - name: demoapp.alerts
+      rules:
+        - alert: DemoAppHighErrorRate
+          # Uses the recording rule above - alerts should be cheap to evaluate.
+          expr: route:demoapp_error_ratio:rate5m > 0.15
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High 5xx ratio on {{ $labels.route }}"
+            description: >-
+              {{ $labels.route }} is returning
+              {{ $value | humanizePercentage }} 5xx over the last 5 minutes
+              (threshold 15%).
+
+        - alert: DemoAppSlowP99
+          expr: route:demoapp_latency_p99:5m > 1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "p99 latency above 1s on {{ $labels.route }}"
+            description: "p99 is {{ $value | humanizeDuration }}."
+
+        - alert: DemoAppAbsent
+          # The alert people forget: your service disappearing looks like
+          # "no errors" on every other panel.
+          expr: absent(up{job="demoapp"} == 1)
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "No healthy demoapp targets are being scraped"

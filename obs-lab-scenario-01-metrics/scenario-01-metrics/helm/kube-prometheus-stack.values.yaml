@@ -1,0 +1,122 @@
+# Values for kube-prometheus-stack, tuned for a single-node minikube on a
+# modest vserver. Production defaults would be considerably heavier.
+
+fullnameOverride: kube-prom-stack
+
+# --- Prometheus ---------------------------------------------------------
+prometheus:
+  prometheusSpec:
+    scrapeInterval: 15s
+    evaluationInterval: 30s
+
+    # Short retention: this is a lab, and disk on a vserver is finite.
+    retention: 12h
+    retentionSize: 3GB
+
+    # These four are the ones that bite people.
+    #
+    # *SelectorNilUsesHelmValues: true (the chart default) means "only pick up
+    # ServiceMonitors/PrometheusRules carrying release=<release name>".
+    # Setting them false makes Prometheus pick up EVERY ServiceMonitor in the
+    # cluster. We keep the default here on purpose so exercise 1 can show you
+    # the failure mode - our ServiceMonitor carries the release label.
+    serviceMonitorSelectorNilUsesHelmValues: true
+    podMonitorSelectorNilUsesHelmValues: true
+    ruleSelectorNilUsesHelmValues: true
+    probeSelectorNilUsesHelmValues: true
+
+    resources:
+      requests:
+        cpu: 200m
+        memory: 700Mi
+      limits:
+        memory: 1500Mi
+
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 5Gi
+
+# --- Alertmanager -------------------------------------------------------
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests:
+        cpu: 20m
+        memory: 64Mi
+      limits:
+        memory: 128Mi
+  config:
+    route:
+      group_by: ["alertname", "namespace"]
+      group_wait: 10s
+      group_interval: 30s
+      repeat_interval: 1h
+      receiver: "blackhole"
+      routes:
+        - receiver: "blackhole"
+          matchers:
+            - alertname = "Watchdog"
+    receivers:
+      # No real notifier in the lab. Scenario 2 wires this to something.
+      - name: "blackhole"
+
+# --- Grafana ------------------------------------------------------------
+grafana:
+  adminPassword: "obslab"   # lab only. Never do this in a real values file.
+
+  defaultDashboardsTimezone: Europe/Berlin
+
+  sidecar:
+    dashboards:
+      enabled: true
+      # Watch every namespace, so our dashboard ConfigMap can live in "demo"
+      # next to the app it describes instead of in the monitoring namespace.
+      searchNamespace: ALL
+      label: grafana_dashboard
+      labelValue: "1"
+      folderAnnotation: grafana_folder
+      provider:
+        foldersFromFilesStructure: true
+    datasources:
+      enabled: true
+      searchNamespace: ALL
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 384Mi
+
+  grafana.ini:
+    # Lab convenience: skip the login screen for read-only browsing.
+    auth.anonymous:
+      enabled: true
+      org_role: Viewer
+    analytics:
+      reporting_enabled: false
+      check_for_updates: false
+
+# --- Exporters ----------------------------------------------------------
+# kube-state-metrics gives you kube_pod_container_resource_{requests,limits},
+# which the dashboard uses. node-exporter gives you the node view.
+kubeStateMetrics:
+  enabled: true
+nodeExporter:
+  enabled: true
+
+# Single-node minikube has no separate control plane endpoints to scrape.
+# Leaving these on produces permanently-down targets that train you to ignore
+# red - the worst habit in monitoring.
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+kubeEtcd:
+  enabled: false

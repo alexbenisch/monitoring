@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: demoapp
+  namespace: demo
+  labels:
+    # The ServiceMonitor selects on THIS label, not on the pod labels.
+    # Getting this wrong is the most common "why is my target missing" cause.
+    app.kubernetes.io/name: demoapp
+spec:
+  selector:
+    app.kubernetes.io/name: demoapp
+  ports:
+    - name: http          # ServiceMonitor references this port BY NAME
+      port: 8000
+      targetPort: http

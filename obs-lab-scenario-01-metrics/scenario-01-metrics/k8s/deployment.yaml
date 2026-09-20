@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demoapp
+  namespace: demo
+  labels:
+    app.kubernetes.io/name: demoapp
+    app.kubernetes.io/part-of: obs-lab
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: demoapp
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: demoapp
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: demoapp
+          image: obs-lab/demoapp:1.0.0
+          # minikube image load puts the image in the node's runtime, so never
+          # go out to a registry for it.
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            # Exercise 3 turns this up with scripts/chaos.sh
+            - name: CHAOS_LEVEL
+              value: "0"
+            # Exercise 5 turns this on with scripts/chaos.sh cardinality on
+            - name: CARDINALITY
+              value: "0"
+            - name: WORKER_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            # Deliberately tight. Exercise 6 asks you to prove from metrics
+            # whether these are right, rather than guessing.
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              cpu: 300m
+              memory: 192Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
