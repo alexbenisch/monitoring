@@ -20,9 +20,26 @@ ADDRESS="127.0.0.1"
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 
+# kube-prometheus-stack labels its Services two different ways: the Grafana
+# sub-chart uses the modern app.kubernetes.io/name, while the Prometheus and
+# Alertmanager Services the chart renders itself still carry the legacy `app`
+# label. Try both.
+#
+# The trailing `|| true` matters: kubectl exits non-zero when the jsonpath
+# index finds nothing, and under `set -e` a bare assignment from a command
+# substitution propagates that status and kills the script - silently, before
+# forward() can report which service was missing.
 svc_for() {
-  kubectl -n "$NS" get svc -l "app.kubernetes.io/name=$1" \
-    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null
+  local sel name
+  for sel in "app.kubernetes.io/name=$1" "app=kube-prometheus-stack-$1"; do
+    name="$(kubectl -n "$NS" get svc -l "$sel" \
+      -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+    if [[ -n "$name" ]]; then
+      printf '%s' "$name"
+      return 0
+    fi
+  done
+  return 0
 }
 
 GRAFANA="$(svc_for grafana)"

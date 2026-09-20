@@ -114,8 +114,43 @@ the server lives on your laptop - the server has no private key GitHub knows,
 and putting one there would be worse than the problem.
 
 To push from the host, forward your agent for that session instead
-(`ssh -A lab@<ip>`), remembering that root on the host can then use your agent
+(`ssh -A obs-lab`), remembering that root on the host can then use your agent
 for as long as it is connected.
+
+### Deploy key
+
+The host has its own read-only deploy key so it can use the `git@github.com:`
+URL without your personal key ever being on it:
+
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/monitoring_deploy -N "" \
+  -C "obs-lab deploy key for alexbenisch/monitoring"
+cat >> ~/.ssh/config <<'EOF'
+Host github.com
+  User git
+  IdentityFile ~/.ssh/monitoring_deploy
+  IdentitiesOnly yes
+EOF
+gh repo deploy-key add ~/.ssh/monitoring_deploy.pub --title "obs-lab (read-only)"
+```
+
+`IdentitiesOnly yes` is not decoration: without it ssh offers every key it can
+find, and GitHub drops the connection after too many failed offers with the
+same `Permission denied (publickey)` you get from having no key at all.
+
+**This key does not survive a destroy.** The private half lives only on the
+server, so rebuilding the host orphans the entry on GitHub - a credential that
+still grants read access to a machine that no longer exists. After any
+`destroy`, remove it:
+
+```bash
+gh repo deploy-key list
+gh repo deploy-key delete <id>
+```
+
+Read-only is deliberate and is all a clone needs. It is also the right level
+for scenario 04, where Argo CD only reads this repo. Granting write later is
+easier than noticing it was never needed.
 
 cloud-init runs `package_upgrade`, so the box is busy for a few minutes after
 first boot. Wait for the marker before running the scenario:
