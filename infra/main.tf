@@ -63,6 +63,9 @@ resource "hcloud_server" "lab" {
 
   user_data = templatefile("${path.module}/cloud-init.yaml", {
     ssh_public_key = local.ssh_public_key
+    # indent() skips the first line, which is exactly what a YAML block scalar
+    # needs: the template already supplies that line's indentation.
+    minikube_unit = indent(6, file("${path.module}/files/minikube.service"))
   })
 
   labels = {

@@ -24,6 +24,12 @@ packages:
   - apt-transport-https
 
 write_files:
+  - path: /etc/systemd/system/minikube.service
+    owner: root:root
+    permissions: '0644'
+    content: |
+      ${minikube_unit}
+
   - path: /etc/sysctl.d/99-obs-lab.conf
     content: |
       # Prometheus' TSDB and minikube both open a lot of files.
@@ -54,6 +60,12 @@ runcmd:
   # --- minikube ---
   - curl -fsSL -o /usr/local/bin/minikube https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
   - chmod +x /usr/local/bin/minikube
+
+  # Enabled, deliberately not started: there is no cluster yet on first boot.
+  # ConditionPathExists in the unit keeps it inert until 00-bootstrap.sh has
+  # created the profile, after which every reboot brings the cluster back.
+  - systemctl daemon-reload
+  - systemctl enable minikube.service
 
   - sysctl --system
   - touch /var/lib/cloud/obs-lab-ready

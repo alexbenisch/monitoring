@@ -1,0 +1,47 @@
+# Start the minikube cluster at boot.
+#
+# minikube creates its node container with RestartPolicy=no, so a reboot leaves
+# it Exited(137) and nothing in the cluster comes back - including the
+# Tailscale operator and its proxies, which is what makes the monitoring
+# hostnames vanish from the tailnet.
+#
+# `docker update --restart` on the node container is the tempting shortcut, but
+# minikube does more than start a container: it reconciles the kubeconfig,
+# certificates and the kubelet inside. Let minikube do it.
+
+[Unit]
+Description=minikube cluster (profile obs-lab)
+Documentation=https://minikube.sigs.k8s.io/docs/
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+# Only ever RESTART an existing cluster. Without this, a boot before
+# 00-bootstrap.sh has run would have minikube create a profile with default
+# cpu/memory instead of the 4 vCPU / 6144 MB the scenario needs - and the
+# difference would not be obvious afterwards.
+ConditionPathExists=/home/lab/.minikube/profiles/obs-lab
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+User=lab
+Group=lab
+
+# systemd gives a unit almost no environment. minikube needs HOME to find
+# ~/.minikube and ~/.kube, and PATH to find the docker client.
+Environment=HOME=/home/lab
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+Environment=MINIKUBE_IN_STYLE=false
+
+ExecStart=/usr/local/bin/minikube start --profile=obs-lab
+ExecStop=/usr/local/bin/minikube stop --profile=obs-lab
+
+# A cold start pulls images and waits on the control plane; the 90s default is
+# nowhere near enough and produces a confusing timeout failure.
+TimeoutStartSec=900
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target
