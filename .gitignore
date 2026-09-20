@@ -1,0 +1,43 @@
+# --- secrets: never commit, these are what the gh secrets replace ---
+.env
+.env.*
+!.env.example
+*.auto.tfvars
+*.tfvars
+!*.tfvars.example
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+.hcloud_token
+.cloudflare_token
+
+# --- terraform ---
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.*
+crash.log
+*.tfplan
+
+# --- kubernetes ---
+kubeconfig
+kubeconfig.*
+*.kubeconfig
+.kube/
+
+# --- ansible ---
+*.retry
+vault-password*
+
+# --- python (the demo app) ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# --- editors / os ---
+.DS_Store
+*.swp
+.idea/
+.vscode/
