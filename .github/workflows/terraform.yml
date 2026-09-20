@@ -52,6 +52,11 @@ jobs:
         working-directory: infra
 
     steps:
+      # Must be first: defaults.run.working-directory points at infra/, which
+      # does not exist until the repo is checked out. Any `run:` step before
+      # this one fails with "No such file or directory".
+      - uses: actions/checkout@v4
+
       - name: Refuse an unconfirmed destroy
         if: github.event.inputs.action == 'destroy' && github.event.inputs.confirm != 'destroy'
         run: |
@@ -74,7 +79,6 @@ jobs:
           done
           [ "$missing" -eq 0 ] || exit 1
 
-      - uses: actions/checkout@v4
 
       - uses: hashicorp/setup-terraform@v3
         with:
