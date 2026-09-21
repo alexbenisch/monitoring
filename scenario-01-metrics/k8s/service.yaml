@@ -7,6 +7,14 @@ metadata:
     # The ServiceMonitor selects on THIS label, not on the pod labels.
     # Getting this wrong is the most common "why is my target missing" cause.
     app.kubernetes.io/name: demoapp
+  # Exposed onto the tailnet by the Tailscale Kubernetes operator, the same way
+  # Grafana, Prometheus and Alertmanager are. The operator watches Services for
+  # this annotation and runs a proxy Pod for each one, so the address follows
+  # the Service and survives Pod restarts - unlike `kubectl port-forward`,
+  # which dies with its target Pod.
+  annotations:
+    tailscale.com/expose: "true"
+    tailscale.com/hostname: "demoapp"
 spec:
   selector:
     app.kubernetes.io/name: demoapp
