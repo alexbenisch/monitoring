@@ -41,31 +41,43 @@ Projected additions, using realistic RSS rather than the chart defaults:
 | Agent pod during a Maven build (JNLP + maven containers) | 1.0 – 1.5 GiB |
 | Kaniko image build, if it runs concurrently | +0.5 – 1.0 GiB |
 
-Peak on a build day: **~7 GiB against 7.56 GiB advertised.** That is 93%+
-before Kaniko. At that point the kubelet starts evicting, and it evicts by
-usage — which means Grafana (520 MiB) and Prometheus (396 MiB) go first. You
-would lose the observability stack every time a build ran, which is a
-particularly bad failure mode for an observability lab.
+Peak on a build day: **~7 GiB.** Against the 7.56 GiB Kubernetes advertises
+that is already 93% before Kaniko, and the kubelet evicts by usage — Grafana
+(520 MiB) and Prometheus (396 MiB) go first, so you would lose the
+observability stack every time a build ran. Against the ceiling that actually
+applies, measured below, it simply does not fit.
 
-### The catch that makes it worse — verify this first thing
+### The catch that makes it worse — now confirmed
 
 `scenario-01-metrics/scripts/00-bootstrap.sh` starts minikube with
 `--memory=6144` on the docker driver. The kubelet reads `/proc/meminfo`, which
 is not namespaced, so it **advertises the host's 7.56 GiB while the container
-is capped at 6 GiB**. If that cap is still in force, the real ceiling is
-6 GiB, not 7.56 — and current usage of 3.26 GiB leaves only ~2.9 GiB, which
-scenario 02 plus Jenkins alone would exhaust before a single build starts.
+is hard-capped at 6 GiB**. Verified on the host:
 
-I could not confirm the live cgroup limit from here (no host shell). **First
-command of the day:**
-
-```bash
-docker inspect obs-lab --format '{{.HostConfig.Memory}}'   # 0 = unlimited
-minikube config view -p obs-lab
-free -m
+```
+$ docker inspect obs-lab --format '{{.HostConfig.Memory}}'
+6442450944          # exactly 6 GiB
 ```
 
-If that prints `6442450944`, the cap is real and the resize is not optional.
+So the real ceiling is **6144 MiB, not 7745**, and the scheduler does not know
+it. Redo the arithmetic against the number that actually applies:
+
+| | Running total |
+|---|---|
+| Real ceiling (cgroup cap on the minikube container) | **6144 MiB** |
+| In use today | 3264 MiB |
+| + scenario 02 | ~4.3 GiB — 1.8 GiB left |
+| + Jenkins controller | ~5.5 GiB — 0.6 GiB left |
+| + one Maven build agent | **~7.0 GiB — over the cap** |
+
+Jenkins plus a single build does not fit today, and the failure would not be a
+clean "insufficient memory" from the scheduler. The scheduler thinks there is
+room, places the pod, and the container runtime OOM-kills whatever crosses the
+cgroup limit — which is why this is worth knowing before rather than after.
+
+The resize is therefore not optional, and **raising minikube's `--memory` is
+the part people forget**: growing the server alone changes nothing, because
+the 6 GiB cap travels with the profile.
 
 ### Why not a second vServer
 
@@ -241,8 +253,8 @@ and deployment are the natural next layer.
 
 - [ ] Decide the GitHub repo name, create it empty
 - [ ] Skim the [Jenkins Kubernetes plugin pod template docs](https://plugins.jenkins.io/kubernetes/)
-- [ ] Fix the `gpg`/pinentry issue so SSH to the host works unattended — every
-      block tomorrow starts with a command on the lab host
+- [x] ~~Fix the `gpg`/pinentry issue so SSH to the host works unattended~~ —
+      done 2026-09-21: `gpg-agent.conf` now uses `pinentry-gnome3`
 - [ ] Deploy scenario 02 if you want tomorrow's memory numbers to be real
       rather than projected
 
