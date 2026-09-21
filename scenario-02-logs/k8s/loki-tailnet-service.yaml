@@ -1,0 +1,38 @@
+# Loki on the tailnet, as a Service of our own.
+#
+# The chart cannot do this for us: singleBinary.service.annotations is applied
+# to both the main Service and the headless one, and two Services asking for
+# the same tailscale.com/hostname means two proxy Pods competing for the name
+# `loki` - the winner is whichever registered last, which is not a thing you
+# want to debug.
+#
+# This is what makes the whole scenario workable from your laptop:
+#   logcli --addr=http://loki:3100 query '{app="batch-worker"}'
+#   query_range(url="http://loki:3100", ...)
+# with no port-forward to keep alive.
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki-tailnet
+  namespace: logging
+  labels:
+    app.kubernetes.io/name: loki
+    app.kubernetes.io/part-of: obs-lab
+    # The chart's ServiceMonitor selects app.kubernetes.io/name=loki and
+    # excludes anything carrying this label. Without it, Prometheus would
+    # discover Loki through this Service as well as the chart's own and
+    # scrape it twice - which silently doubles every rate() over Loki's
+    # metrics. The chart labels its headless Service the same way.
+    prometheus.io/service-monitor: "false"
+  annotations:
+    tailscale.com/expose: "true"
+    tailscale.com/hostname: "loki"
+spec:
+  selector:
+    app.kubernetes.io/name: loki
+    app.kubernetes.io/instance: loki
+    app.kubernetes.io/component: single-binary
+  ports:
+    - name: http-metrics
+      port: 3100
+      targetPort: 3100

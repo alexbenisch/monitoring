@@ -1,0 +1,217 @@
+# Values for the grafana/alloy chart - the collector half of scenario 02.
+#
+# Design rule for this file: Alloy does the minimum, and only the things that
+# CANNOT be done later at query time. Everything else is left for LogQL, so
+# the exercises have real work to do.
+#
+# What must happen here:
+#   - CRI envelope parsing (the runtime's own wrapper around your line)
+#   - multi-line joining (a stack trace split into 9 lines can never be
+#     rejoined at query time - the information is gone)
+#   - a small, bounded set of stream labels
+#
+# What is deliberately NOT done here:
+#   - parsing batch-worker's four log formats. That is exercises 2 and 3.
+#   - promoting level/route/upstream to labels for batch-worker. Exercise 7
+#     asks you to decide whether that is even a good idea.
+
+controller:
+  type: daemonset
+
+rbac:
+  # discovery.kubernetes needs list/watch on pods. The chart creates the
+  # ClusterRole and binding.
+  create: true
+
+alloy:
+  # Reading /var/log/pods means reading root-owned files written by the
+  # runtime. There is no way around running as root for file-based collection;
+  # the alternative is loki.source.kubernetes, which reads through the API
+  # server instead and trades host access for apiserver load.
+  securityContext:
+    runAsUser: 0
+    runAsGroup: 0
+
+  mounts:
+    varlog: true
+    dockercontainers: true
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+
+  # No clustering: one node, one Alloy.
+  clustering:
+    enabled: false
+
+  configMap:
+    create: true
+    content: |-
+      // ---------------------------------------------------------------
+      // obs-lab scenario 02 - log collection pipeline
+      //
+      // Read this top to bottom: it is a dataflow graph, not a sequence of
+      // instructions. Each block names the block it forwards to, and Alloy
+      // works out the order. `alloy fmt` will reformat it; the UI at :12345
+      // will draw it.
+      // ---------------------------------------------------------------
+
+      logging {
+        level  = "info"
+        format = "logfmt"
+      }
+
+      // 1. FIND the pods. This talks to the API server and produces one
+      //    target per container, carrying __meta_kubernetes_* labels.
+      discovery.kubernetes "pods" {
+        role = "pod"
+      }
+
+      // 2. DECIDE which ones we want, and what their stream labels will be.
+      //
+      //    Every label you keep here multiplies streams in Loki. Five labels
+      //    with 2, 1, 3, 4 and 2 values is up to 48 streams; add pod name at
+      //    50 replicas and it is 2400. Keep this list short and boring.
+      discovery.relabel "pod_logs" {
+        targets = discovery.kubernetes.pods.targets
+
+        // Only the demo namespace. Widen this and your ingest volume goes
+        // with it - exercise 4 measures exactly what that costs.
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          regex         = "demo"
+          action        = "keep"
+        }
+
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+          target_label  = "app"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_name"]
+          target_label  = "container"
+        }
+        // pod IS high-ish cardinality, and it is here on purpose: with 2-3
+        // replicas it is cheap and it is what you need to answer "is it one
+        // pod or all of them". At 200 replicas you would drop it and use
+        // structured metadata instead.
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+
+        // Build the on-disk path the runtime writes to:
+        //   /var/log/pods/<namespace>_<pod>_<uid>/<container>/*.log
+        rule {
+          source_labels = ["__meta_kubernetes_pod_uid", "__meta_kubernetes_pod_container_name"]
+          separator     = "/"
+          action        = "replace"
+          replacement   = "/var/log/pods/*$1/*.log"
+          target_label  = "__path__"
+        }
+      }
+
+      // 3. MATCH those paths on disk and tail them.
+      local.file_match "pod_logs" {
+        path_targets = discovery.relabel.pod_logs.output
+      }
+
+      loki.source.file "pod_logs" {
+        targets    = local.file_match.pod_logs.targets
+        forward_to = [loki.process.pod_logs.receiver]
+      }
+
+      // 4. PROCESS. This is where the irreversible work happens.
+      loki.process "pod_logs" {
+        forward_to = [loki.write.default.receiver]
+
+        // 4a. Strip the CRI envelope. On disk every line actually looks like:
+        //       2026-09-21T16:04:11.123Z stdout F {"level":"info",...}
+        //     stage.cri pulls out the timestamp, the stream (stdout/stderr)
+        //     and the partial-line flag, and hands on just your message.
+        //
+        //     The F/P flag matters: the runtime splits lines over 16KB into
+        //     P (partial) fragments and one final F. stage.cri rejoins them.
+        //     Skip this stage and a long line arrives as several broken ones.
+        stage.cri {}
+
+        // 4b. Join multi-line events. THIS CANNOT BE FIXED LATER.
+        //
+        //     A Java stack trace is one event written as nine lines. Once
+        //     those nine lines are nine Loki entries, no LogQL query can put
+        //     them back together - you have permanently lost the fact that
+        //     they belonged together.
+        //
+        //     firstline matches the shapes that START an event. Anything
+        //     else - tab-indented frames, "Caused by:", "... 5 more" - is
+        //     appended to the event above it.
+        stage.multiline {
+          firstline     = "^(\\{|ts=|\\[GC\\]|\\d{4}-\\d{2}-\\d{2} |Exception in thread)"
+          max_lines     = 20
+          max_wait_time = "3s"
+        }
+
+        // 4c. demoapp only: it emits well-formed JSON and nothing else, so
+        //     promoting level to a label here is safe and bounded (4 values).
+        //     batch-worker gets no such treatment - that is the exercise.
+        stage.match {
+          selector = "{app=\"demoapp\"}"
+
+          stage.json {
+            expressions = {
+              level    = "level",
+              trace_id = "trace_id",
+            }
+          }
+
+          stage.labels {
+            values = { level = "level" }
+          }
+
+          // trace_id is per-request: unbounded cardinality. As a LABEL it
+          // would create a stream per request and destroy the index. As
+          // STRUCTURED METADATA it stays queryable without being indexed.
+          // This is the modern answer to the cardinality problem, and
+          // exercise 7 makes you prove the difference.
+          stage.structured_metadata {
+            values = { trace_id = "trace_id" }
+          }
+        }
+
+        // 4d. Drop the debug drizzle. ~55% of batch-worker's output is
+        //     heartbeats and pool stats that nobody has ever read.
+        //     Commented out on purpose: exercise 4 asks you to measure the
+        //     volume FIRST, then decide, then turn this on and measure again.
+        //
+        // stage.match {
+        //   selector = "{app=\"batch-worker\"}"
+        //   stage.drop {
+        //     expression = "level=debug|DEBUG|\\[GC\\]"
+        //     drop_counter_reason = "noise"
+        //   }
+        // }
+      }
+
+      // 5. WRITE.
+      loki.write "default" {
+        endpoint {
+          url = "http://loki.logging.svc.cluster.local:3100/loki/api/v1/push"
+        }
+        external_labels = {
+          cluster = "obs-lab",
+        }
+      }
+
+# Alloy's own metrics, into scenario 01's Prometheus. The label is what makes
+# that Prometheus actually select it.
+serviceMonitor:
+  enabled: true
+  additionalLabels:
+    release: kube-prom-stack

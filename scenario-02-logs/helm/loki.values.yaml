@@ -1,0 +1,149 @@
+# Values for the grafana/loki chart, SingleBinary mode on one minikube node.
+#
+# The chart defaults to SimpleScalable + S3 + two memcached tiers, which wants
+# object storage and several GB of RAM. None of that exists here, so most of
+# this file is turning things off. Read it as "what a lab strips out", not as
+# a template for production.
+
+deploymentMode: SingleBinary
+
+# The single-binary Service ends up named exactly `loki`, so every URL in the
+# exercises is http://loki.logging.svc.cluster.local:3100 with no chart-name
+# noise in it.
+fullnameOverride: loki
+
+loki:
+  # No multi-tenancy. Every request is tenant "fake" internally, and neither
+  # logcli nor the Python client has to send X-Scope-OrgID. Turn this on the
+  # day you have more than one team, and not before.
+  auth_enabled: false
+
+  commonConfig:
+    # One replica means one copy. The chart default of 3 makes the single
+    # binary refuse to become ready, because it cannot satisfy the quorum
+    # against itself. This is the single most common "Loki won't start" cause.
+    replication_factor: 1
+    path_prefix: /var/loki
+
+  storage:
+    type: filesystem
+    filesystem:
+      chunks_directory: /var/loki/chunks
+      rules_directory: /var/loki/rules
+
+  # schemaConfig is required - the chart will not template without it, and
+  # `useTestSchema` is a footgun that silently pins you to an old schema.
+  # tsdb + v13 is the current answer for any new install.
+  schemaConfig:
+    configs:
+      - from: "2024-04-01"
+        store: tsdb
+        object_store: filesystem
+        schema: v13
+        index:
+          prefix: index_
+          period: 24h
+
+  limits_config:
+    # Lab retention. 72h is enough for the exercises and bounded on a 160GB disk.
+    retention_period: 72h
+
+    # volume_enabled powers `logcli volume` and Grafana's "log volume" bars,
+    # which exercise 3 uses to find which stream is eating the disk.
+    volume_enabled: true
+
+    # Structured metadata is how you attach high-cardinality fields (trace_id,
+    # record_id) WITHOUT making them stream labels. Exercise 7 is about exactly
+    # this trade-off, so it has to be on.
+    allow_structured_metadata: true
+
+    # The defaults here are deliberately generous for a lab: the exercises
+    # deliberately write bad queries, and hitting a limit teaches less than
+    # seeing the query be slow.
+    reject_old_samples: true
+    reject_old_samples_max_age: 168h
+    max_query_series: 10000
+    max_entries_limit_per_query: 10000
+    split_queries_by_interval: 15m
+    # Ingest headroom for chaos.sh flood.
+    ingestion_rate_mb: 16
+    ingestion_burst_size_mb: 32
+    per_stream_rate_limit: 8MB
+    per_stream_rate_limit_burst: 16MB
+
+  compactor:
+    working_directory: /var/loki/compactor
+    # Retention only actually deletes if the compactor is told to do it.
+    # Setting retention_period above without this is the classic "why is my
+    # disk still full" bug.
+    retention_enabled: true
+    delete_request_store: filesystem
+
+  # Loki's own querier logs every query it runs at info. Useful in exercise 4,
+  # where you compare what you asked for with what Loki actually scanned.
+  server:
+    log_level: info
+
+singleBinary:
+  replicas: 1
+  persistence:
+    enabled: true
+    size: 20Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+  # NOTE: the tailnet exposure is deliberately NOT here. The chart applies
+  # singleBinary.service.annotations to BOTH the main Service and the headless
+  # one, which would give two Services the same tailscale.com/hostname and set
+  # two proxies fighting over the name `loki`. k8s/loki-tailnet-service.yaml
+  # does it with a Service of its own instead.
+
+# --- everything the SimpleScalable default would have given us -----------
+# All zero/false because SingleBinary does the work of all of them.
+read:
+  replicas: 0
+write:
+  replicas: 0
+backend:
+  replicas: 0
+
+# Two memcached StatefulSets asking for several GB. Not on an 8GB node.
+chunksCache:
+  enabled: false
+resultsCache:
+  enabled: false
+
+# nginx in front of Loki. Real installs want it; here it would only add a
+# second address (:80 vs :3100) for the exercises to get confused by.
+gateway:
+  enabled: false
+
+# Synthetic canary stream that proves ingestion works. A good idea in
+# production, but in a lab it is just another stream polluting your queries.
+lokiCanary:
+  enabled: false
+
+# Helm test pod and the bundled MinIO. Neither is wanted.
+test:
+  enabled: false
+minio:
+  enabled: false
+
+# --- feed Loki's own metrics back into scenario 01's Prometheus ----------
+monitoring:
+  serviceMonitor:
+    enabled: true
+    # scenario 01's Prometheus selects ServiceMonitors on release=kube-prom-stack.
+    # Without this label the ServiceMonitor exists and is simply never read -
+    # which is scenario 01, exercise 1, happening to you for real.
+    labels:
+      release: kube-prom-stack
+    interval: 30s
+  dashboards:
+    enabled: false
+  rules:
+    enabled: false

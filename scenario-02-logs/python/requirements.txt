@@ -1,0 +1,2 @@
+# The Loki HTTP API is plain JSON over GET. httpx is the only hard dependency.
+httpx==0.28.1

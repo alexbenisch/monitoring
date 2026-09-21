@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Same flat layout as scenario 01. The demo namespace itself is created by
+# scenario 01 - this scenario only adds a workload to it.
+resources:
+  - namespace.yaml
+  - batchworker.yaml
+  - loki-tailnet-service.yaml
+  - grafana-datasource.yaml
+
+# includeSelectors: false, for the same reason as scenario 01: selectors are
+# immutable, so anything kustomize injects into one is permanent.
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/part-of: obs-lab
+      obs-lab.scenario: "02-logs"

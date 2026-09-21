@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: batch-worker
+  namespace: demo
+  labels:
+    # Alloy turns app.kubernetes.io/name into the `app` stream label, so this
+    # value is what you type in {app="batch-worker"} all the way through the
+    # exercises. Change it here and every query in the README breaks.
+    app.kubernetes.io/name: batch-worker
+    app.kubernetes.io/part-of: obs-lab
+spec:
+  # Two replicas, so "is this one pod or both?" is a question you can actually
+  # ask - and so the `pod` label has something to distinguish.
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: batch-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: batch-worker
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: batch-worker
+          image: obs-lab/batch-worker:1.0.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: LOG_RATE
+              value: "8"
+            # Raised by scripts/chaos.sh
+            - name: CHAOS_LEVEL
+              value: "0"
+            - name: NOISE_RATIO
+              value: "0.55"
+            - name: MALFORMED_RATIO
+              value: "0.02"
+            - name: WORKER_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          resources:
+            # Writing log lines is cheap. The interesting resource cost of this
+            # workload lands on Loki and on disk, not here.
+            requests:
+              cpu: 25m
+              memory: 48Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+# No Service and no ServiceMonitor on purpose.
+#
+# batch-worker exposes no metrics at all - it only writes to stdout. That is
+# the point: it is the workload you cannot instrument, where logs are the only
+# signal you have. Exercise 5 asks you to build a RED-style view of it anyway,
+# out of nothing but its log lines.

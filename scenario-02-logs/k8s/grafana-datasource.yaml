@@ -1,0 +1,32 @@
+# Register Loki with the Grafana that scenario 01 already installed.
+#
+# No helm upgrade and no edit to scenario 01's values file: that Grafana runs
+# the datasource sidecar with searchNamespace: ALL, so it picks up any
+# ConfigMap in any namespace carrying grafana_datasource="1" and writes it into
+# Grafana's provisioning directory. Delete this ConfigMap and the datasource
+# disappears again.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-datasource
+  namespace: logging
+  labels:
+    grafana_datasource: "1"
+data:
+  loki-datasource.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Loki
+        type: loki
+        access: proxy
+        # In-cluster address. Grafana reaches Loki directly; the tailnet
+        # Service is for logcli and Python on your workstation.
+        url: http://loki.logging.svc.cluster.local:3100
+        uid: loki
+        isDefault: false
+        jsonData:
+          # Keep Grafana's own query window sane. Loki will happily accept
+          # "last 30 days" over a filesystem store and then think about it
+          # for a very long time.
+          maxLines: 1000
+          timeout: 60

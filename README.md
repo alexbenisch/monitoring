@@ -5,11 +5,13 @@ Observability lab — self-contained scenarios, each building on the last.
 | Scenario | Topic | Status |
 |---|---|---|
 | [01 — Metrics](scenario-01-metrics/README.md) | Prometheus, the Operator, Grafana, an instrumented FastAPI app on minikube | ready |
-| 02 | Loki + log collection (Fluent Bit or Alloy) — *or* Jenkins + Argo CD | undecided |
+| [02 — Logs](scenario-02-logs/README.md) | Loki, Alloy, LogQL, and querying it from Python | ready |
 | 03 | OpenTelemetry traces, Tempo, exemplars | planned |
 | 04 | Argo CD owns this repo; break things by pushing commits | planned |
 
-Later scenarios reuse the Grafana and the demo app from scenario 01.
+Later scenarios reuse the Grafana and the demo app from scenario 01. Scenario
+02 bumps that app to 1.1.0, which adds structured logging and changes nothing
+else, so scenario 01 behaves identically either way.
 
 ## Infrastructure
 
