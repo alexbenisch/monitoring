@@ -1,0 +1,221 @@
+name: snapshot
+
+# Snapshots of the lab host, because HCLOUD_TOKEN only exists as a repository
+# secret - there is no local hcloud CLI that could do this.
+#
+# A snapshot is a full image of the server's disk. It is what makes anything
+# risky reversible: rescaling the server, a Kubernetes upgrade, or any
+# afternoon that starts with "this should be fine".
+#
+# Billing: snapshots are charged per GB of USED disk space, per month, and
+# they outlive the server. Take them before risky work, delete them when the
+# work is proven. `list` shows you what is accumulating.
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'What to do'
+        type: choice
+        required: true
+        default: list
+        options:
+          - list            # snapshots in this project, newest first
+          - create          # snapshot the server
+          - delete          # remove one snapshot, by id
+          - restore         # REBUILD the server from a snapshot. Destructive.
+      server:
+        description: 'Server name'
+        type: string
+        required: false
+        default: obs-lab
+      description:
+        description: 'create only: what this snapshot is for'
+        type: string
+        required: false
+        default: ''
+      image_id:
+        description: 'delete/restore only: the snapshot id, from `list`'
+        type: string
+        required: false
+        default: ''
+      shutdown:
+        description: 'create only: power the server down first (consistent, but downtime)'
+        type: boolean
+        required: false
+        default: true
+      confirm:
+        description: "delete/restore only: type the word delete or restore"
+        type: string
+        required: false
+        default: ''
+
+# Never two at once. A snapshot taken while another run is rebuilding the
+# server would capture a half-installed disk.
+concurrency:
+  group: snapshot-${{ github.event.inputs.server }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+  HCLOUD_CLI_VERSION: '1.68.0'
+
+jobs:
+  snapshot:
+    name: ${{ github.event.inputs.action }}
+    runs-on: ubuntu-latest
+    steps:
+      # The confirm field must repeat the action word, so `restore` cannot be
+      # reached by picking the wrong entry in a dropdown.
+      - name: Refuse an unconfirmed delete or restore
+        if: ${{ contains(fromJSON('["delete","restore"]'), github.event.inputs.action) && github.event.inputs.confirm != github.event.inputs.action }}
+        run: |
+          echo "::error::${{ github.event.inputs.action }} requires the confirm field to be exactly '${{ github.event.inputs.action }}'. Got: '${{ github.event.inputs.confirm }}'"
+          exit 1
+
+      - name: Check the inputs make sense
+        run: |
+          set -euo pipefail
+          action='${{ github.event.inputs.action }}'
+          image_id='${{ github.event.inputs.image_id }}'
+
+          if [ -z "${HCLOUD_TOKEN}" ]; then
+            echo "::error::HCLOUD_TOKEN secret is not set"
+            exit 1
+          fi
+
+          case "$action" in
+            delete|restore)
+              if [ -z "$image_id" ]; then
+                echo "::error::$action needs image_id. Run the 'list' action to find it."
+                exit 1
+              fi
+              # Fail on a name typed where an id belongs, rather than having
+              # the CLI resolve it to something unintended.
+              if ! printf '%s' "$image_id" | grep -qE '^[0-9]+$'; then
+                echo "::error::image_id must be numeric. Got: '$image_id'"
+                exit 1
+              fi ;;
+          esac
+
+      - name: Install hcloud CLI
+        run: |
+          set -euo pipefail
+          url="https://github.com/hetznercloud/cli/releases/download/v${HCLOUD_CLI_VERSION}/hcloud-linux-amd64.tar.gz"
+          curl -fsSL "$url" -o /tmp/hcloud.tar.gz
+          tar -xzf /tmp/hcloud.tar.gz -C /tmp
+          sudo install -m 0755 /tmp/hcloud /usr/local/bin/hcloud
+          hcloud version
+
+      - name: Run
+        run: |
+          set -euo pipefail
+          action='${{ github.event.inputs.action }}'
+          server='${{ github.event.inputs.server }}'
+          image_id='${{ github.event.inputs.image_id }}'
+          description='${{ github.event.inputs.description }}'
+          shutdown='${{ github.event.inputs.shutdown }}'
+
+          emit() {
+            {
+              echo "### snapshot $action"
+              echo ''
+              echo '```'
+              cat /tmp/out.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            cat /tmp/out.txt
+          }
+
+          # A snapshot of a RUNNING server is crash-consistent: it captures the
+          # disk as it was at that instant, including anything a process had
+          # not yet flushed. For this host that means etcd and the container
+          # runtime, which is exactly the data you would be restoring for.
+          # Shutting down first costs a few minutes and removes the question.
+          list_snapshots() {
+            hcloud image list --type snapshot \
+              -o columns=id,description,image_size,created,labels
+          }
+
+          case "$action" in
+            list)
+              list_snapshots > /tmp/out.txt 2>&1
+              # image_size is the billed number: used disk, not the 160 GB volume.
+              echo '' >> /tmp/out.txt
+              echo 'image_size is GB of USED disk, which is what is billed monthly.' >> /tmp/out.txt
+              ;;
+
+            create)
+              desc="$description"
+              if [ -z "$desc" ]; then
+                desc="manual $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+              fi
+
+              was_running=no
+              if [ "$shutdown" = "true" ]; then
+                status="$(hcloud server describe "$server" -o json | jq -r '.status')"
+                if [ "$status" = "running" ]; then
+                  was_running=yes
+                  echo "shutting down $server for a consistent snapshot" | tee -a /tmp/out.txt
+                  # Graceful ACPI shutdown, unlike the poweroff in the hcloud
+                  # workflow, which is a power cut.
+                  hcloud server shutdown --wait --wait-timeout 300s "$server" >> /tmp/out.txt 2>&1
+                fi
+              fi
+
+              # Always bring the server back, even if the snapshot fails.
+              # Leaving the lab powered off after a failed backup is the worst
+              # of both outcomes.
+              restart_if_needed() {
+                if [ "$was_running" = "yes" ]; then
+                  echo "starting $server again" | tee -a /tmp/out.txt
+                  hcloud server poweron "$server" >> /tmp/out.txt 2>&1 || true
+                fi
+              }
+              trap restart_if_needed EXIT
+
+              echo "creating snapshot of $server: $desc" | tee -a /tmp/out.txt
+              hcloud server create-image \
+                --type snapshot \
+                --description "$desc" \
+                --label "project=obs-lab" \
+                --label "source=github-actions" \
+                "$server" >> /tmp/out.txt 2>&1
+
+              # Restart now, not at exit, so this lands in the summary that
+              # emit writes below. The trap remains for the failure path.
+              trap - EXIT
+              restart_if_needed
+
+              echo '' >> /tmp/out.txt
+              list_snapshots >> /tmp/out.txt 2>&1
+              ;;
+
+            delete)
+              echo "deleting snapshot ${image_id}" > /tmp/out.txt
+              hcloud image describe "$image_id" >> /tmp/out.txt 2>&1
+              hcloud image delete "$image_id" >> /tmp/out.txt 2>&1
+              echo '' >> /tmp/out.txt
+              list_snapshots >> /tmp/out.txt 2>&1
+              ;;
+
+            restore)
+              # `server rebuild` overwrites the disk from the image. Everything
+              # written since that snapshot is gone - this is the rollback, and
+              # it is not a merge.
+              echo "REBUILDING ${server} from snapshot ${image_id}" > /tmp/out.txt
+              echo '' >> /tmp/out.txt
+              hcloud image describe "$image_id" >> /tmp/out.txt 2>&1
+              echo '' >> /tmp/out.txt
+              hcloud server rebuild "$server" --image "$image_id" >> /tmp/out.txt 2>&1
+              echo '' >> /tmp/out.txt
+              hcloud server describe "$server" >> /tmp/out.txt 2>&1
+              ;;
+
+            *)
+              echo "::error::unknown action $action"; exit 1 ;;
+          esac
+
+          emit
