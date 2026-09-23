@@ -54,15 +54,24 @@ kubectl -n "$NS" rollout status statefulset/loki --timeout=5m
 
 # The readiness probe passing is not the same as the ingester accepting
 # writes. Ask Loki directly.
+#
+# Through the API server's service proxy, NOT `kubectl exec`: the Loki image
+# is distroless. It has no shell and no wget, so anything exec'd into it fails
+# with "executable file not found" - and piping that to grep hides the error,
+# leaving a loop that can only ever time out silently.
 log "checking /ready"
+ready=no
 for _ in $(seq 1 30); do
-  if kubectl -n "$NS" exec statefulset/loki -- \
-      wget -qO- http://127.0.0.1:3100/ready 2>/dev/null | grep -q "ready"; then
+  if kubectl get --raw \
+      "/api/v1/namespaces/${NS}/services/loki:3100/proxy/ready" 2>/dev/null \
+      | grep -q "ready"; then
     log "loki is ready"
+    ready=yes
     break
   fi
   sleep 5
 done
+[[ "$ready" == "yes" ]] || warn "loki did not report ready within 150s - check: kubectl -n ${NS} logs statefulset/loki"
 
 cat <<EOF
 

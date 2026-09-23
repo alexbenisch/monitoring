@@ -142,6 +142,25 @@ alloy:
         //     Skip this stage and a long line arrives as several broken ones.
         stage.cri {}
 
+        // 4a-bis. Drop `filename`, which loki.source.file attaches for its
+        //         own bookkeeping.
+        //
+        //         It looks harmless and is not. The value is the full path,
+        //         /var/log/pods/<ns>_<pod>_<uid>/<container>/<restart>.log,
+        //         so it carries the pod UID *and* the restart counter: every
+        //         container restart mints a brand new label value and
+        //         therefore a brand new stream, for ever. A pod that
+        //         crashloops would add streams until the index was useless.
+        //
+        //         It is also pure duplication - namespace, pod and container
+        //         are already labels, and they say the same thing without
+        //         the UID. This is exercise 7's lesson arriving through the
+        //         collector's own defaults rather than through anything you
+        //         wrote.
+        stage.label_drop {
+          values = ["filename"]
+        }
+
         // 4b. Join multi-line events. THIS CANNOT BE FIXED LATER.
         //
         //     A Java stack trace is one event written as nine lines. Once

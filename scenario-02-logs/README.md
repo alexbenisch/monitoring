@@ -197,19 +197,53 @@ logcli query --limit=5 '{upstream="billing"}'
 <details>
 <summary><b>Discussion</b></summary>
 
-`logcli labels` returns the ones Alloy sets — `app`, `cluster`, `container`,
-`namespace`, `pod` — plus `level`, and at least one you never configured.
+`logcli labels` returns eight, from three different sources — and knowing
+which is which is most of the exercise:
 
-`level` exists only for `demoapp`, because `alloy.values.yaml` promotes it
-inside a `stage.match { selector = "{app=\"demoapp\"}" }` block and
-deliberately does not do the same for `batch-worker`. That asymmetry is what
-exercises 2 and 3 are built on.
+| Label | Where it comes from |
+|---|---|
+| `app`, `container`, `namespace`, `pod` | `discovery.relabel` in `alloy.values.yaml`, from Kubernetes metadata |
+| `cluster` | `external_labels` on `loki.write` |
+| `level` | `stage.labels`, **demoapp only** |
+| `stream` | `stage.cri` — `stdout` or `stderr`, from the runtime's envelope |
+| `service_name` | **Loki itself.** You configured nothing. |
 
-The one you did not configure is `service_name` (and depending on version you
-may also meet `detected_level`). Recent Loki adds these itself, guessing from
-the stream's other labels and the line content. Worth knowing purely so that
-"where did this label come from?" is not a confusing afternoon — the answer is
-Loki, not your collector.
+`level` exists only for `demoapp`, because the config promotes it inside a
+`stage.match { selector = "{app=\"demoapp\"}" }` block and deliberately does
+not do the same for `batch-worker`. That asymmetry is what exercises 2 and 3
+are built on.
+
+`service_name` is added by Loki, which guesses it from the stream's other
+labels. Depending on version you may meet `detected_level` too. Worth knowing
+purely so "where did this label come from?" is not a confusing afternoon — the
+answer is Loki, not your collector.
+
+**And one that is deliberately missing.** `loki.source.file` attaches
+`filename` to everything it tails, and `alloy.values.yaml` throws it away:
+
+```river
+stage.label_drop {
+  values = ["filename"]
+}
+```
+
+Look at what the value would have been and you can see why:
+
+```
+/var/log/pods/demo_batch-worker-98bc5b89-clr85_b9113bbb-.../batch-worker/0.log
+                                  └─ pod uid ─┘            └ restart counter ┘
+```
+
+It carries the pod UID *and* the restart counter, so every container restart
+mints a new label value and therefore a brand new stream, permanently. A pod
+in CrashLoopBackOff would add streams until the index was useless. It is also
+pure duplication — `namespace`, `pod` and `container` already say the same
+thing without the UID.
+
+Leaving it in took this lab from 6 streams to 12 before anything had even gone
+wrong. That is exercise 7's lesson reaching you through a collector's default
+rather than through anything you wrote, which is the more common way it
+actually happens.
 
 `upstream` is not a label anywhere. It is a *field inside the line*, and the
 selector `{upstream="billing"}` fails with `parse error ... no matching
