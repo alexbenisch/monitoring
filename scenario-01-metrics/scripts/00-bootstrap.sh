@@ -11,8 +11,23 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "${SCRIPT_DIR}")"
 
 PROFILE="${MINIKUBE_PROFILE:-obs-lab}"
-CPUS="${CPUS:-4}"
-MEMORY="${MEMORY:-6144}"
+# Sized for a cpx42 host (8 vCPU / 16 GB), leaving the host ~3 GB.
+#
+# These are the numbers that actually bind, and they are easy to miss: with
+# the docker driver, --memory is a cgroup limit on the node container, but the
+# kubelet reports /proc/meminfo, which is NOT namespaced. So Kubernetes
+# advertises the host's full RAM while the container is capped here, the
+# scheduler places pods against a ceiling that does not exist, and the runtime
+# OOM-kills whatever crosses the real one.
+#
+# Growing the server does not change this on its own - the cap travels with
+# the minikube profile. An existing cluster needs:
+#   minikube stop -p obs-lab
+#   minikube config set -p obs-lab memory 13312
+#   minikube config set -p obs-lab cpus 8
+#   minikube start -p obs-lab
+CPUS="${CPUS:-8}"
+MEMORY="${MEMORY:-13312}"
 DRIVER="${DRIVER:-docker}"
 K8S_VERSION="${K8S_VERSION:-stable}"
 RELEASE="kube-prom-stack"
