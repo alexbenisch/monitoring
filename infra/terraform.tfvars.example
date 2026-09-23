@@ -9,7 +9,7 @@
 domain    = "kubetest.uk"
 hostnames = ["app", "monitoring"]
 
-server_type = "cpx32"
+server_type = "cpx42"
 location    = "nbg1"
 
 # Narrow this to your own address if it is static.

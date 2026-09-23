@@ -48,18 +48,24 @@ variable "server_name" {
 
 variable "server_type" {
   description = <<-EOT
-    cpx32 = 4 vCPU / 8 GB / 160 GB, shared x86.
+    cpx42 = 8 vCPU / 16 GB / 320 GB, shared x86.
 
-    Scenario 01 asks for 4 vCPU / 6 GB free, and kube-prometheus-stack alone
-    reserves ~700 MB, so a 2 vCPU / 4 GB type will thrash.
+    Was cpx32 (4 vCPU / 8 GB) through scenarios 01 and 02. Scenario 05 adds a
+    Jenkins controller plus an ephemeral build agent per build, which together
+    peak around 7 GB on top of the ~4.3 GB the observability stack already
+    uses - over the ceiling, and the kubelet evicts by usage, so Grafana and
+    Prometheus would go first every time a build ran.
 
-    Confirmed orderable in fsn1, nbg1, hel1 and sin. cpx31 is the same
-    4 vCPU / 8 GB but was only offered in nbg1, which would break the moment
-    `location` changed. Availability is per-project and moves - re-run the
-    `hcloud` workflow with `server-types` before changing this.
+    Note the disk does NOT grow to 320 GB here: `keep_disk` is set on the
+    server resource so the volume stays at 160 GB and the change stays
+    reversible. Hetzner cannot shrink a disk.
+
+    Confirmed orderable in nbg1, hel1 and sin - NOT fsn1, unlike cpx32.
+    Availability is per-project and moves, so re-run the `hcloud` workflow
+    with `server-types` before changing this.
   EOT
   type        = string
-  default     = "cpx32"
+  default     = "cpx42"
 }
 
 variable "location" {

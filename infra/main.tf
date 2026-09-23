@@ -53,6 +53,19 @@ resource "hcloud_server" "lab" {
   server_type = var.server_type
   location    = var.location
 
+  # Rescale CPU and RAM only, leaving the disk at the size it already has.
+  #
+  # Hetzner cannot shrink a disk, so a rescale that grows it is a one-way
+  # door: the server could never move back to a type with a smaller one.
+  # Keeping the disk makes every future resize reversible, at the cost of not
+  # getting the larger type's disk - which is irrelevant here, since 160 GB is
+  # barely a third used.
+  #
+  # Changing server_type is an in-place rescale (the provider calls Hetzner's
+  # change-type API); it is NOT a replacement. `location` and `image` are the
+  # attributes that would destroy and recreate this server.
+  keep_disk = true
+
   ssh_keys     = [hcloud_ssh_key.admin.id]
   firewall_ids = [hcloud_firewall.lab.id]
 
