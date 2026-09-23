@@ -29,8 +29,19 @@ host's full RAM because it reads `/proc/meminfo`, which is not namespaced.
 The scheduler therefore plans against a number the runtime does not enforce.
 `scenario-01-metrics/scripts/00-bootstrap.sh` carries the details.
 
-Services reachable on the tailnet: `grafana`, `prometheus`, `alertmanager`,
-`loki`, `demoapp`, `hello-java`.
+Services reachable on the tailnet when it is up: `grafana`, `prometheus`,
+`alertmanager`, `loki`, `demoapp`, `hello-java`.
+
+**The host is destroyed when not in use**, since Hetzner bills a server for
+existing rather than for running — stopping it saves nothing. State lives in a
+snapshot, and `var.image` is pinned to it, so coming back is one command:
+
+```bash
+gh workflow run terraform.yml -f action=apply
+```
+
+Expect new IP addresses (the DNS records follow) and read `bd show obs-1du`
+first — stale Tailscale devices will steal the hostnames back otherwise.
 
 ## Open work
 
