@@ -8,12 +8,43 @@ papersize: a4
 
 # Scenario 05 — Jenkins CI/CD for a simple Java app
 
-Plan for tomorrow, 2026-09-22. Numbered 05 to leave the planned 03 (traces)
-and 04 (Argo CD) alone; renaming the directory later costs nothing.
+Numbered 05 to leave the planned 03 (traces) and 04 (Argo CD) alone; renaming
+the directory later costs nothing.
+
+## Progress
+
+| Block | State | Bead |
+|---|---|---|
+| 1. Resize the host | **done** 2026-09-23 — `cpx42`, minikube cap 6144 → 13312 MiB | — |
+| 2. The Java app | **done** — builds, tests, deployed by hand to `apps`, on the tailnet, scraped by Prometheus | — |
+| Where hello-java lives | **open, and blocks everything below** | `obs-m23` |
+| 3. Jenkins via Helm + JCasC | open | `obs-96f` |
+| 4. Pipeline v1: build and test | open | `obs-khz` |
+| 5. Pipeline v2: image with Kaniko | open | `obs-958` |
+| 6. Pipeline v3: deploy and smoke-test | open | `obs-ezm` |
+| 7. Jenkins metrics into Prometheus | open | `obs-4nc` |
+| 7. Alloy to collect `apps` and `cicd` logs | open | `obs-17d` |
+
+`bd ready` is the live version of this table. The timetable below is kept as
+written, since the estimates are worth checking against reality.
+
+**What block 2 proved, so a later failure is attributable:** the manifests are
+known good. `hello-java` is running two replicas in `apps`, answering on the
+tailnet, with both probes green and `serviceMonitor/apps/hello-java/0` up in
+Prometheus. Jenkins therefore only has to automate a path that already works,
+and `GET /hello` still reports `"build":"dev"` — the field that must change to
+a build number on the first successful pipeline run.
 
 ---
 
-## 1. Hardware: resize, don't provision a second server
+## 1. Hardware: resize, don't provision a second server — DONE
+
+**Done 2026-09-23.** Applied in place: `0 added, 1 changed, 0 destroyed` in
+74 seconds, disk held at 160 GB by `keep_disk`, so it remains reversible. The
+minikube cap was raised separately with `docker update` — no cluster restart
+was needed, since CPU had never been capped at the container level.
+
+The reasoning is kept below because the arithmetic is the reusable part.
 
 **Verdict: the current server is not enough once scenario 02 is running, but a
 second vServer is the wrong fix. Resize `obs-lab` from `cpx32` to `cpx42`.**
@@ -249,14 +280,15 @@ and deployment are the natural next layer.
 
 ---
 
-## 7. Tonight's prep (15 minutes, optional)
+## 7. Prep (largely done)
 
-- [ ] Decide the GitHub repo name, create it empty
+- [ ] Decide the GitHub repo name, create it empty (`obs-m23`)
 - [ ] Skim the [Jenkins Kubernetes plugin pod template docs](https://plugins.jenkins.io/kubernetes/)
 - [x] ~~Fix the `gpg`/pinentry issue so SSH to the host works unattended~~ —
       done 2026-09-21: `gpg-agent.conf` now uses `pinentry-gnome3`
-- [ ] Deploy scenario 02 if you want tomorrow's memory numbers to be real
-      rather than projected
+- [x] ~~Deploy scenario 02 so the memory numbers are measured~~ — done
+      2026-09-23. Measured: 4112 MiB of the 13312 cap (31%) with scenario 02
+      and hello-java both running, against a projected Jenkins peak of ~3 GB.
 
 ---
 
