@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - deployment.yaml
+  - service.yaml
+  - servicemonitor.yaml
+
+# Jenkins sets the image tag per build with:
+#   kustomize edit set image hello-java=<registry>/hello-java:<tag>
+images:
+  - name: registry.kube-system.svc.cluster.local/hello-java
+    newTag: dev

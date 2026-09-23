@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: hello-java
+  namespace: apps
+  labels:
+    # The ServiceMonitor selects on THIS label, exactly as in scenario 01.
+    app.kubernetes.io/name: hello-java
+  annotations:
+    # On the tailnet like everything else, so the smoke-test stage and you can
+    # both reach it by name.
+    tailscale.com/expose: "true"
+    tailscale.com/hostname: "hello-java"
+spec:
+  selector:
+    app.kubernetes.io/name: hello-java
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

@@ -42,3 +42,7 @@ venv/
 *.swp
 .idea/
 .vscode/
+
+# --- java / maven (scenario 05) ---
+target/
+*.class

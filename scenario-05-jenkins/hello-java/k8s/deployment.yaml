@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello-java
+  namespace: apps
+  labels:
+    app.kubernetes.io/name: hello-java
+    app.kubernetes.io/part-of: obs-lab
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hello-java
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hello-java
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: hello-java
+          # Jenkins rewrites this tag on every deploy. `latest` would work
+          # until the day you needed to know which build is running, or to
+          # roll one back - an immutable tag per build is what makes the
+          # deployment auditable.
+          image: registry.kube-system.svc.cluster.local/hello-java:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            # Surfaced by GET /hello, so you can confirm from outside the
+            # cluster which build is actually serving traffic.
+            - name: BUILD_TAG
+              value: "dev"
+          # The two probes point at DIFFERENT endpoints on purpose.
+          # Liveness failing restarts the pod; readiness failing only takes it
+          # out of the Service. Pointing both at the same check means any
+          # transient dependency outage turns into a restart loop.
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          # A JVM under a memory limit needs telling about it. Modern JVMs read
+          # the cgroup limit themselves, but the heap defaults to a fraction of
+          # it, so leave headroom for metaspace, thread stacks and direct
+          # buffers - the JVM's total footprint is always larger than -Xmx.
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        # The JVM writes to /tmp (hsperfdata, and Tomcat's work directory),
+        # and readOnlyRootFilesystem would otherwise stop it starting.
+        - name: tmp
+          emptyDir: {}

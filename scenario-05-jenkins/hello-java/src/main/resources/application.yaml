@@ -1,0 +1,27 @@
+spring:
+  application:
+    name: hello-java
+
+# Set by the Deployment from the image tag Jenkins built. "dev" is what you
+# get running it on a laptop.
+app:
+  build-tag: ${BUILD_TAG:dev}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # health for the probes, prometheus for scenario 01's Prometheus,
+        # info because it costs nothing. Note what is NOT here: exposing
+        # "*" hands out heapdump, env and loggers, which between them leak
+        # your configuration and let anyone change log levels at runtime.
+        include: health,info,prometheus
+  endpoint:
+    health:
+      # Splits /actuator/health into .../liveness and .../readiness, which is
+      # what makes the two Kubernetes probes mean different things.
+      probes:
+        enabled: true
+  metrics:
+    tags:
+      application: hello-java

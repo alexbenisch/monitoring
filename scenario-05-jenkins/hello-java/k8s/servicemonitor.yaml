@@ -1,0 +1,18 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: hello-java
+  namespace: apps
+  labels:
+    # Scenario 01's Prometheus selects on release=kube-prom-stack. Without
+    # this the ServiceMonitor exists and is silently never read - which is
+    # scenario 01 exercise 1, happening to you for real.
+    release: kube-prom-stack
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hello-java
+  endpoints:
+    - port: http                 # the Service port NAME, not a number
+      path: /actuator/prometheus
+      interval: 30s
