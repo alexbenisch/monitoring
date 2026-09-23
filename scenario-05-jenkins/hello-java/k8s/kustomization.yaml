@@ -7,8 +7,10 @@ resources:
   - service.yaml
   - servicemonitor.yaml
 
-# Jenkins sets the image tag per build with:
-#   kustomize edit set image hello-java=<registry>/hello-java:<tag>
+# Jenkins sets the image per build with:
+#   kustomize edit set image obs-lab/hello-java=<registry>/hello-java:<tag>
+# which rewrites both the name and the tag, so the same manifests serve the
+# by-hand path and the pipeline.
 images:
-  - name: registry.kube-system.svc.cluster.local/hello-java
+  - name: obs-lab/hello-java
     newTag: dev

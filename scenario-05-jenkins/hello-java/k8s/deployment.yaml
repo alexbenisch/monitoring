@@ -22,11 +22,17 @@ spec:
           type: RuntimeDefault
       containers:
         - name: hello-java
-          # Jenkins rewrites this tag on every deploy. `latest` would work
-          # until the day you needed to know which build is running, or to
-          # roll one back - an immutable tag per build is what makes the
-          # deployment auditable.
-          image: registry.kube-system.svc.cluster.local/hello-java:dev
+          # Two ways this image gets here, and the manifest supports both:
+          #
+          #   by hand   docker build + `minikube image load`, exactly as
+          #             scenario 01 does. Fast, and it needs no registry.
+          #   by Jenkins  built with Kaniko and pushed to a registry, because
+          #             an agent Pod cannot run `minikube image load`.
+          #
+          # kustomization.yaml rewrites this per deploy either way. `latest`
+          # would work right up until you needed to know which build was
+          # serving traffic, or to roll one back.
+          image: obs-lab/hello-java:dev
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
