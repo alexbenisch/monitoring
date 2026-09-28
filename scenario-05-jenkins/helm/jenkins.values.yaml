@@ -64,7 +64,11 @@ controller:
                       }
                     }
                     scriptPath('scenario-05-jenkins/hello-java/Jenkinsfile')
-                    lightweight(true)
+                    // A full checkout, not a lightweight one: only a full
+                    // checkout records the changelog before the pipeline
+                    // starts, and the Jenkinsfile's changeset filter
+                    // decides from that changelog, before any agent pod.
+                    lightweight(false)
                   }
                 }
               }
