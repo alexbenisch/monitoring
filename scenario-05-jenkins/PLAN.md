@@ -18,7 +18,7 @@ the directory later costs nothing.
 | 1. Resize the host | **done** 2026-09-23 — `cpx42`, minikube cap 6144 → 13312 MiB | — |
 | 2. The Java app | **done** — builds, tests, deployed by hand to `apps`, on the tailnet, scraped by Prometheus | — |
 | Where hello-java lives | **decided** 2026-09-28 — stays in `monitoring` under `scenario-05-jenkins/hello-java` | `obs-m23` |
-| 3. Jenkins via Helm + JCasC | open | `obs-96f` |
+| 3. Jenkins via Helm + JCasC | **done** 2026-09-28 — chart 5.9.63 in `cicd`, `http://jenkins:8080` on the tailnet, admin login works (`scripts/10-jenkins.sh`) | `obs-96f` |
 | 4. Pipeline v1: build and test | open | `obs-khz` |
 | 5. Pipeline v2: image with Kaniko | open | `obs-958` |
 | 6. Pipeline v3: deploy and smoke-test | open | `obs-ezm` |
