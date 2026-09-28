@@ -1,0 +1,17 @@
+# Maven's local repository, shared by every hello-java build.
+#
+# Build pods are ephemeral, so without this each build starts with an empty
+# ~/.m2 and downloads the full Spring Boot dependency tree. ReadWriteOnce is
+# enough: minikube has one node, and every agent pod lands on it.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: maven-repo
+  namespace: cicd
+  labels:
+    app.kubernetes.io/part-of: obs-lab
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 5Gi

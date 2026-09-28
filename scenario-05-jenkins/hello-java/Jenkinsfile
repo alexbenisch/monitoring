@@ -1,0 +1,79 @@
+// Pipeline v1: check out, build and test hello-java, publish the test results.
+//
+// The job polls the whole monitoring repo, so most commits it sees are
+// observability changes that have nothing to do with this app. A build only
+// runs when something under scenario-05-jenkins/hello-java changed, or when
+// someone starts it by hand.
+
+pipeline {
+  // No agent at the top: a skipped build should not start a pod.
+  agent none
+
+  // Jenkins is only on the tailnet, so GitHub cannot deliver a webhook to it.
+  // Polling is the honest lab answer; production would use a webhook or an
+  // outbound-only agent.
+  triggers {
+    pollSCM('H/2 * * * *')
+  }
+
+  options {
+    buildDiscarder(logRotator(numToKeepStr: '20'))
+    timeout(time: 20, unit: 'MINUTES')
+  }
+
+  stages {
+    stage('Build and test') {
+      when {
+        beforeAgent true
+        anyOf {
+          changeset 'scenario-05-jenkins/hello-java/**'
+          triggeredBy 'UserIdCause'
+        }
+      }
+      agent {
+        kubernetes {
+          defaultContainer 'maven'
+          // The jnlp container is added by the plugin. Maven gets its own
+          // memory: the agent default of 512Mi is sized for jnlp alone, and a
+          // Maven build squeezed into it dies mid-build with a misleading
+          // "channel closed".
+          yaml '''
+            apiVersion: v1
+            kind: Pod
+            spec:
+              containers:
+                - name: maven
+                  image: maven:3.9-eclipse-temurin-21
+                  command: ["sleep"]
+                  args: ["infinity"]
+                  resources:
+                    requests:
+                      cpu: 500m
+                      memory: 1Gi
+                    limits:
+                      memory: 1536Mi
+                  volumeMounts:
+                    - name: maven-repo
+                      mountPath: /root/.m2
+              volumes:
+                # Without a shared cache every build downloads Spring Boot's
+                # whole dependency tree again.
+                - name: maven-repo
+                  persistentVolumeClaim:
+                    claimName: maven-repo
+          '''
+        }
+      }
+      steps {
+        dir('scenario-05-jenkins/hello-java') {
+          sh 'mvn -B verify'
+        }
+      }
+      post {
+        always {
+          junit 'scenario-05-jenkins/hello-java/target/surefire-reports/*.xml'
+        }
+      }
+    }
+  }
+}
