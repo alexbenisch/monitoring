@@ -20,7 +20,7 @@ the directory later costs nothing.
 | Where hello-java lives | **decided** 2026-09-28 — stays in `monitoring` under `scenario-05-jenkins/hello-java` | `obs-m23` |
 | 3. Jenkins via Helm + JCasC | **done** 2026-09-28 — chart 5.9.63 in `cicd`, `http://jenkins:8080` on the tailnet, admin login works (`scripts/10-jenkins.sh`) | `obs-96f` |
 | 4. Pipeline v1: build and test | **done** 2026-09-28 — build #1 green, 1 test passed, on an ephemeral agent pod with the Maven cache on a PVC | `obs-khz` |
-| 5. Pipeline v2: image with Kaniko | open | `obs-958` |
+| 5. Pipeline v2: image with Kaniko | **done** 2026-09-28 — build #3 pushed `hello-java:3-01d9b6d` to the minikube registry addon (`scripts/20-registry.sh`) | `obs-958` |
 | 6. Pipeline v3: deploy and smoke-test | open | `obs-ezm` |
 | 7. Jenkins metrics into Prometheus | open | `obs-4nc` |
 | 7. Alloy to collect `apps` and `cicd` logs | open | `obs-17d` |
