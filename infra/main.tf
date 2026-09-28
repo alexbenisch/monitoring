@@ -62,8 +62,9 @@ resource "hcloud_server" "lab" {
   # barely a third used.
   #
   # Changing server_type is an in-place rescale (the provider calls Hetzner's
-  # change-type API); it is NOT a replacement. `location` and `image` are the
-  # attributes that would destroy and recreate this server.
+  # change-type API); it is NOT a replacement. `location` is the attribute
+  # that would destroy and recreate this server; `image` would too, but it is
+  # ignored below.
   keep_disk = true
 
   ssh_keys     = [hcloud_ssh_key.admin.id]
@@ -89,6 +90,10 @@ resource "hcloud_server" "lab" {
   lifecycle {
     # user_data only ever runs on first boot. Without this, editing cloud-init
     # silently recreates the server and everything on it.
-    ignore_changes = [user_data]
+    #
+    # image is the same: it only means something at creation. The lab is
+    # restored from snapshots, so the running server's image never matches
+    # var.image - without this every apply would rebuild it blank.
+    ignore_changes = [user_data, image]
   }
 }
