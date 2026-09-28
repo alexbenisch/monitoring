@@ -55,6 +55,18 @@ controller:
           - script: >
               pipelineJob('hello-java') {
                 description('Builds scenario-05-jenkins/hello-java from the monitoring repo.')
+                // Same schedule as the Jenkinsfile's triggers block. It has to
+                // be here too: every JCasC reload rewrites the job from this
+                // definition, and a trigger only the Jenkinsfile declared is
+                // silently dropped until the next build runs - which, with
+                // polling gone, is never.
+                properties {
+                  pipelineTriggers {
+                    triggers {
+                      pollSCM { scmpoll_spec('H/2 * * * *') }
+                    }
+                  }
+                }
                 definition {
                   cpsScm {
                     scm {
