@@ -17,7 +17,7 @@ the directory later costs nothing.
 |---|---|---|
 | 1. Resize the host | **done** 2026-09-23 — `cpx42`, minikube cap 6144 → 13312 MiB | — |
 | 2. The Java app | **done** — builds, tests, deployed by hand to `apps`, on the tailnet, scraped by Prometheus | — |
-| Where hello-java lives | **open, and blocks everything below** | `obs-m23` |
+| Where hello-java lives | **decided** 2026-09-28 — stays in `monitoring` under `scenario-05-jenkins/hello-java` | `obs-m23` |
 | 3. Jenkins via Helm + JCasC | open | `obs-96f` |
 | 4. Pipeline v1: build and test | open | `obs-khz` |
 | 5. Pipeline v2: image with Kaniko | open | `obs-958` |
@@ -253,7 +253,7 @@ and deployment are the natural next layer.
 
 | Decision | Options | Lean |
 |---|---|---|
-| Where the app repo lives | new GitHub repo / subdir of `monitoring` | **New repo.** Keeps the CI trigger story honest, and a monorepo would rebuild on every observability commit |
+| Where the app repo lives | new GitHub repo / subdir of `monitoring` | **Decided: subdir of `monitoring`.** The lean was a new repo, since a monorepo rebuilds on every observability commit; instead the pipeline only builds when `scenario-05-jenkins/hello-java/**` changed |
 | Registry | `minikube addons enable registry` / in-cluster `registry:2` / GHCR | **minikube registry addon** first — it is one command and the node already trusts it. Move to GHCR only if you want to practise credentials |
 | Agent image | `jenkins/inbound-agent` + sidecars / a custom prebuilt image | **Sidecars in the pod template.** Slower per build, but the YAML shows exactly what each container contributes |
 | Maven cache | none / PVC mounted at `/root/.m2` | **PVC.** Without it every build re-downloads the internet, and you will spend the afternoon watching it |
@@ -282,7 +282,8 @@ and deployment are the natural next layer.
 
 ## 7. Prep (largely done)
 
-- [ ] Decide the GitHub repo name, create it empty (`obs-m23`)
+- [x] ~~Decide the GitHub repo name, create it empty (`obs-m23`)~~ — decided
+      2026-09-28: no new repo, hello-java stays in `monitoring`
 - [ ] Skim the [Jenkins Kubernetes plugin pod template docs](https://plugins.jenkins.io/kubernetes/)
 - [x] ~~Fix the `gpg`/pinentry issue so SSH to the host works unattended~~ —
       done 2026-09-21: `gpg-agent.conf` now uses `pinentry-gnome3`
