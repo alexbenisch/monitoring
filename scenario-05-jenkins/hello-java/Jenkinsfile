@@ -1,9 +1,16 @@
-// Pipeline v1: check out, build and test hello-java, publish the test results.
+// hello-java pipeline.
+//   v1: check out, build and test, publish the test results.
+//   v2: build the image with Kaniko and push it to the in-cluster registry.
 //
 // The job polls the whole monitoring repo, so most commits it sees are
 // observability changes that have nothing to do with this app. A build only
 // runs when something under scenario-05-jenkins/hello-java changed, or when
 // someone starts it by hand.
+
+// Kaniko runs inside a pod, so it pushes to the registry's in-cluster name.
+// The node pulls the same image as localhost:5000/hello-java (see
+// scripts/20-registry.sh).
+def REGISTRY = 'registry.kube-system.svc.cluster.local'
 
 pipeline {
   // No agent at the top: a skipped build should not start a pod.
@@ -18,11 +25,11 @@ pipeline {
 
   options {
     buildDiscarder(logRotator(numToKeepStr: '20'))
-    timeout(time: 20, unit: 'MINUTES')
+    timeout(time: 30, unit: 'MINUTES')
   }
 
   stages {
-    stage('Build and test') {
+    stage('hello-java') {
       when {
         beforeAgent true
         anyOf {
@@ -30,13 +37,12 @@ pipeline {
           triggeredBy 'UserIdCause'
         }
       }
+      // One pod for the whole build. The jnlp container is added by the
+      // plugin; the agent default of 512Mi is sized for jnlp alone, so the
+      // other containers get their own memory.
       agent {
         kubernetes {
           defaultContainer 'maven'
-          // The jnlp container is added by the plugin. Maven gets its own
-          // memory: the agent default of 512Mi is sized for jnlp alone, and a
-          // Maven build squeezed into it dies mid-build with a misleading
-          // "channel closed".
           yaml '''
             apiVersion: v1
             kind: Pod
@@ -55,6 +61,21 @@ pipeline {
                   volumeMounts:
                     - name: maven-repo
                       mountPath: /root/.m2
+                # Kaniko builds the image in userspace. The alternative,
+                # mounting the node's container socket, would hand every
+                # Jenkinsfile root on the node. The debug tag carries the
+                # busybox shell that Jenkins' sh step needs.
+                - name: kaniko
+                  image: gcr.io/kaniko-project/executor:v1.24.0-debug
+                  command: ["sleep"]
+                  args: ["infinity"]
+                  resources:
+                    requests:
+                      cpu: 500m
+                      memory: 1Gi
+                    limits:
+                      # The Dockerfile runs a full Maven build of its own.
+                      memory: 2Gi
               volumes:
                 # Without a shared cache every build downloads Spring Boot's
                 # whole dependency tree again.
@@ -64,14 +85,39 @@ pipeline {
           '''
         }
       }
-      steps {
-        dir('scenario-05-jenkins/hello-java') {
-          sh 'mvn -B verify'
+      stages {
+        stage('Build and test') {
+          steps {
+            dir('scenario-05-jenkins/hello-java') {
+              sh 'mvn -B verify'
+            }
+          }
+          post {
+            always {
+              junit 'scenario-05-jenkins/hello-java/target/surefire-reports/*.xml'
+            }
+          }
         }
-      }
-      post {
-        always {
-          junit 'scenario-05-jenkins/hello-java/target/surefire-reports/*.xml'
+
+        stage('Image') {
+          environment {
+            // Build number for ordering, commit for tracing back to source.
+            IMAGE = "${REGISTRY}/hello-java:${env.BUILD_NUMBER}-${env.GIT_COMMIT.take(7)}"
+          }
+          steps {
+            container('kaniko') {
+              // --insecure: the addon registry speaks plain HTTP. Fine in a
+              // lab, and must never leave one.
+              sh '''
+                /kaniko/executor \
+                  --context=dir://$WORKSPACE/scenario-05-jenkins/hello-java \
+                  --dockerfile=Dockerfile \
+                  --destination=$IMAGE \
+                  --insecure
+              '''
+            }
+            echo "Pushed ${IMAGE}"
+          }
         }
       }
     }
