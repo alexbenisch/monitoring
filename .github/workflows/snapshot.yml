@@ -129,6 +129,16 @@ jobs:
             cat /tmp/out.txt
           }
 
+          # hcloud reports every wait twice when stdout is not a terminal:
+          # "Waiting for X ..." and then "Waiting for X ... done". On a
+          # terminal the second overwrites the first; in a log and in the step
+          # summary both stay. Keep only the finished line. sed, not grep -v:
+          # grep exits 1 when it prints nothing, and pipefail would fail the
+          # step for it. hcloud's own exit status still comes through.
+          hc() {
+            hcloud "$@" 2>&1 | sed -E '/^Waiting for .* \.\.\.$/d'
+          }
+
           # A snapshot of a RUNNING server is crash-consistent: it captures the
           # disk as it was at that instant, including anything a process had
           # not yet flushed. For this host that means etcd and the container
@@ -161,7 +171,7 @@ jobs:
                   echo "shutting down $server for a consistent snapshot" | tee -a /tmp/out.txt
                   # Graceful ACPI shutdown, unlike the poweroff in the hcloud
                   # workflow, which is a power cut.
-                  hcloud server shutdown --wait --wait-timeout 300s "$server" >> /tmp/out.txt 2>&1
+                  hc server shutdown --wait --wait-timeout 300s "$server" >> /tmp/out.txt
                 fi
               fi
 
@@ -171,18 +181,18 @@ jobs:
               restart_if_needed() {
                 if [ "$was_running" = "yes" ]; then
                   echo "starting $server again" | tee -a /tmp/out.txt
-                  hcloud server poweron "$server" >> /tmp/out.txt 2>&1 || true
+                  hc server poweron "$server" >> /tmp/out.txt || true
                 fi
               }
               trap restart_if_needed EXIT
 
               echo "creating snapshot of $server: $desc" | tee -a /tmp/out.txt
-              hcloud server create-image \
+              hc server create-image \
                 --type snapshot \
                 --description "$desc" \
                 --label "project=obs-lab" \
                 --label "source=github-actions" \
-                "$server" >> /tmp/out.txt 2>&1
+                "$server" >> /tmp/out.txt
 
               # Restart now, not at exit, so this lands in the summary that
               # emit writes below. The trap remains for the failure path.
@@ -196,7 +206,7 @@ jobs:
             delete)
               echo "deleting snapshot ${image_id}" > /tmp/out.txt
               hcloud image describe "$image_id" >> /tmp/out.txt 2>&1
-              hcloud image delete "$image_id" >> /tmp/out.txt 2>&1
+              hc image delete "$image_id" >> /tmp/out.txt
               echo '' >> /tmp/out.txt
               list_snapshots >> /tmp/out.txt 2>&1
               ;;
@@ -209,7 +219,7 @@ jobs:
               echo '' >> /tmp/out.txt
               hcloud image describe "$image_id" >> /tmp/out.txt 2>&1
               echo '' >> /tmp/out.txt
-              hcloud server rebuild "$server" --image "$image_id" >> /tmp/out.txt 2>&1
+              hc server rebuild "$server" --image "$image_id" >> /tmp/out.txt
               echo '' >> /tmp/out.txt
               hcloud server describe "$server" >> /tmp/out.txt 2>&1
               ;;
