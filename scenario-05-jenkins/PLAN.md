@@ -22,7 +22,7 @@ the directory later costs nothing.
 | 4. Pipeline v1: build and test | **done** 2026-09-28 — build #1 green, 1 test passed, on an ephemeral agent pod with the Maven cache on a PVC | `obs-khz` |
 | 5. Pipeline v2: image with Kaniko | **done** 2026-09-28 — build #3 pushed `hello-java:3-01d9b6d` to the minikube registry addon (`scripts/20-registry.sh`) | `obs-958` |
 | 6. Pipeline v3: deploy and smoke-test | **done** 2026-09-29 — build #6, started by polling, deployed `6-9b2c4ff` to `apps` and the smoke test saw that tag on `/hello` | `obs-ezm` |
-| 7. Jenkins metrics into Prometheus | open | `obs-4nc` |
+| 7. Jenkins metrics into Prometheus | **done** 2026-09-29 — prometheus plugin + ServiceMonitor, ~1450 series per scrape, e.g. `default_jenkins_builds_last_build_result{jenkins_job="hello-java"}` | `obs-4nc` |
 | 7. Alloy to collect `apps` and `cicd` logs | open | `obs-17d` |
 
 `bd ready` is the live version of this table. The timetable below is kept as
