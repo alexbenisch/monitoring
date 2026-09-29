@@ -85,7 +85,10 @@ variable "image" {
     found" once the snapshot is deleted.
   EOT
   type        = string
-  default     = "ubuntu-24.04"
+  # TEMPORARY: snapshot 437508299 (2026-09-29 end of day), so that tomorrow's
+  # restore after tonight's destroy is one apply. Set back to "ubuntu-24.04"
+  # once the lab is back (tracked in beads).
+  default = "437508299"
 }
 
 variable "ssh_public_key" {
