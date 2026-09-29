@@ -24,7 +24,7 @@ class HelloControllerTest {
     void helloReturnsTheBuildTag() throws Exception {
         mockMvc.perform(get("/hello"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.message").value("hello from the pipeline"))
+                .andExpect(jsonPath("$.message").value("deliberately wrong - alert test"))
                 .andExpect(jsonPath("$.build").value("test"));
     }
 }
