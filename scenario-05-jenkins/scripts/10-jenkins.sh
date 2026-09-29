@@ -35,6 +35,9 @@ kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f - >/d
 log "creating the maven cache for build pods"
 kubectl apply -f "${ROOT_DIR}/k8s/maven-repo-pvc.yaml" >/dev/null
 
+log "creating the account hello-java builds deploy to apps with"
+kubectl apply -f "${ROOT_DIR}/k8s/deployer-rbac.yaml" >/dev/null
+
 # First start downloads and installs the plugins, which takes a few minutes.
 log "installing jenkins (chart ${JENKINS_CHART_VERSION})"
 helm upgrade --install jenkins jenkins/jenkins \

@@ -1,0 +1,85 @@
+# The identity hello-java build pods deploy with.
+#
+# Scoped to what `kubectl apply -k` and `kubectl rollout status` on the
+# hello-java manifests need, in the apps namespace only. The Jenkins
+# controller's own service account gets nothing new: a Jenkinsfile can ask
+# for this account, but only builds that do are able to touch apps.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hello-java-deployer
+  namespace: cicd
+  labels:
+    app.kubernetes.io/part-of: obs-lab
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: hello-java-deployer
+  namespace: apps
+  labels:
+    app.kubernetes.io/part-of: obs-lab
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "patch", "update"]
+  # rollout status follows the ReplicaSets and Pods the Deployment creates.
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch", "create", "patch", "update"]
+  - apiGroups: ["monitoring.coreos.com"]
+    resources: ["servicemonitors"]
+    verbs: ["get", "list", "watch", "create", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: hello-java-deployer
+  namespace: apps
+  labels:
+    app.kubernetes.io/part-of: obs-lab
+subjects:
+  - kind: ServiceAccount
+    name: hello-java-deployer
+    namespace: cicd
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: hello-java-deployer
+---
+# The kustomization includes the apps Namespace itself, and a Namespace is
+# cluster-scoped. apply on an existing namespace is a get and a patch;
+# resourceNames keeps that to this one namespace. Creating it is left to the
+# by-hand path.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: hello-java-deployer-namespace
+  labels:
+    app.kubernetes.io/part-of: obs-lab
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    resourceNames: ["apps"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: hello-java-deployer-namespace
+  labels:
+    app.kubernetes.io/part-of: obs-lab
+subjects:
+  - kind: ServiceAccount
+    name: hello-java-deployer
+    namespace: cicd
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: hello-java-deployer-namespace
