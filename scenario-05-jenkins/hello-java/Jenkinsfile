@@ -1,6 +1,7 @@
 // hello-java pipeline.
 //   v1: check out, build and test, publish the test results.
 //   v2: build the image with Kaniko and push it to the in-cluster registry.
+//   v3: deploy it to the apps namespace and smoke-test /hello.
 //
 // The job polls the whole monitoring repo, so most commits it sees are
 // observability changes that have nothing to do with this app. A build only
@@ -11,6 +12,10 @@
 // The node pulls the same image as localhost:5000/hello-java (see
 // scripts/20-registry.sh).
 def REGISTRY = 'registry.kube-system.svc.cluster.local'
+def PULL_REGISTRY = 'localhost:5000'
+
+// Same minor version as the cluster.
+def KUBECTL_VERSION = 'v1.37.0'
 
 pipeline {
   // No agent at the top: a skipped build should not start a pod.
@@ -47,6 +52,9 @@ pipeline {
             apiVersion: v1
             kind: Pod
             spec:
+              # Allowed to apply the hello-java manifests in apps and nothing
+              # else (k8s/deployer-rbac.yaml).
+              serviceAccountName: hello-java-deployer
               containers:
                 - name: maven
                   image: maven:3.9-eclipse-temurin-21
@@ -100,11 +108,14 @@ pipeline {
         }
 
         stage('Image') {
-          environment {
-            // Build number for ordering, commit for tracing back to source.
-            IMAGE = "${REGISTRY}/hello-java:${env.BUILD_NUMBER}-${env.GIT_COMMIT.take(7)}"
-          }
           steps {
+            script {
+              // Build number for ordering, commit for tracing back to source.
+              // Set here rather than in an environment block so the deploy
+              // stages see it too.
+              env.TAG = "${env.BUILD_NUMBER}-${env.GIT_COMMIT.take(7)}"
+              env.IMAGE = "${REGISTRY}/hello-java:${env.TAG}"
+            }
             container('kaniko') {
               // --insecure: the addon registry speaks plain HTTP. Fine in a
               // lab, and must never leave one.
@@ -116,7 +127,50 @@ pipeline {
                   --insecure
               '''
             }
-            echo "Pushed ${IMAGE}"
+            echo "Pushed ${env.IMAGE}"
+          }
+        }
+
+        stage('Deploy') {
+          steps {
+            // An overlay made on the fly: the checked-in manifests stay the
+            // by-hand version, and only the image and the BUILD_TAG the app
+            // reports are swapped for this build's.
+            writeFile file: 'deploy/kustomization.yaml', text: [
+              'resources:',
+              '  - ../scenario-05-jenkins/hello-java/k8s',
+              'images:',
+              '  - name: obs-lab/hello-java',
+              "    newName: ${PULL_REGISTRY}/hello-java",
+              "    newTag: \"${env.TAG}\"",
+              'patches:',
+              '  - target: {kind: Deployment, name: hello-java}',
+              '    patch: |-',
+              '      - op: replace',
+              '        path: /spec/template/spec/containers/0/env/0/value',
+              "        value: \"${env.TAG}\"",
+              '',
+            ].join('\n')
+            sh """
+              curl -fsSLo /usr/local/bin/kubectl https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl
+              chmod +x /usr/local/bin/kubectl
+              kubectl apply -k deploy
+              kubectl -n apps rollout status deployment/hello-java --timeout=5m
+            """
+          }
+        }
+
+        stage('Smoke test') {
+          steps {
+            // Through the Service, the way a client would arrive. The build
+            // tag in the answer proves the new pods are serving, not the old
+            // ones that were there before the rollout.
+            sh '''
+              body=$(curl -fsS --retry 5 --retry-delay 3 --retry-all-errors \
+                http://hello-java.apps.svc.cluster.local:8080/hello)
+              echo "$body"
+              echo "$body" | grep -q "\\"build\\":\\"$TAG\\""
+            '''
           }
         }
       }
