@@ -32,10 +32,21 @@ controller:
   # Pipeline plugins, and Pipeline itself failed to load. Pinning the whole
   # resolved set, exported from a Jenkins that works, is tracked in beads.
   #
-  # junit publishes test results; job-dsl lets JCasC define the jobs below.
+  # junit publishes test results; job-dsl lets JCasC define the jobs below;
+  # prometheus serves the metrics scraped below at /prometheus.
   additionalPlugins:
     - junit:1431.vc0d98912a_756
     - job-dsl:3732.v9a_c49a_61a_313
+    - prometheus:860.v532442b_44e9a_
+
+  # Scraped by scenario 01's Prometheus. It only picks up ServiceMonitors
+  # carrying its Helm release label - without it this one is silently
+  # ignored, which is the classic "target never shows up" failure.
+  prometheus:
+    enabled: true
+    serviceMonitorAdditionalLabels:
+      release: kube-prom-stack
+    scrapeInterval: 30s
 
   # Works around the chart's plugin copy failing after a reboot of the lab
   # host. The chart's init container copies plugins into an emptyDir with
