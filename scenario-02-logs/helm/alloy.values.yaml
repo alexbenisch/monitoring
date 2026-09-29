@@ -78,11 +78,13 @@ alloy:
       discovery.relabel "pod_logs" {
         targets = discovery.kubernetes.pods.targets
 
-        // Only the demo namespace. Widen this and your ingest volume goes
-        // with it - exercise 4 measures exactly what that costs.
+        // demo (this scenario), plus apps and cicd from scenario 05:
+        // hello-java, and Jenkins with its build pods. Every namespace added
+        // here raises ingest volume - exercise 4 measures exactly what that
+        // costs.
         rule {
           source_labels = ["__meta_kubernetes_namespace"]
-          regex         = "demo"
+          regex         = "demo|apps|cicd"
           action        = "keep"
         }
 
@@ -171,8 +173,18 @@ alloy:
         //     firstline matches the shapes that START an event. Anything
         //     else - tab-indented frames, "Caused by:", "... 5 more" - is
         //     appended to the event above it.
+        //
+        //     This applies to every namespace collected, so every log format
+        //     in them needs a shape here. Miss one and each of its lines is
+        //     glued onto the event before it, 20 at a time:
+        //       {                         JSON (demoapp, sidecars)
+        //       ts=                       logfmt (batch-worker)
+        //       2026-09-29 09:14:01       Jenkins controller
+        //       2026-09-29T09:01:41Z      Spring Boot (hello-java) - note the T
+        //       Sep 29, 2026 9:02:02 AM   java.util.logging (Jenkins agents)
+        //       ESC[                      coloured lines (Kaniko)
         stage.multiline {
-          firstline     = "^(\\{|ts=|\\[GC\\]|\\d{4}-\\d{2}-\\d{2} |Exception in thread)"
+          firstline     = "^(\\{|ts=|\\[GC\\]|\\d{4}-\\d{2}-\\d{2}[T ]|[A-Z][a-z]{2} \\d{1,2}, \\d{4} |\\x1b\\[|Exception in thread)"
           max_lines     = 20
           max_wait_time = "3s"
         }
