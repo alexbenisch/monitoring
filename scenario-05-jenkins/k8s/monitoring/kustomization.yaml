@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Jenkins alerts and dashboard, applied by scripts/10-jenkins.sh. Both are
+# picked up by scenario 01's stack: Prometheus loads PrometheusRules with
+# release=kube-prom-stack, and the Grafana sidecar loads ConfigMaps labelled
+# grafana_dashboard="1" from any namespace.
+resources:
+  - prometheusrule.yaml
+
+configMapGenerator:
+  - name: jenkins-dashboard
+    namespace: cicd
+    files:
+      - dashboards/jenkins.json
+    options:
+      labels:
+        grafana_dashboard: "1"
+
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/part-of: obs-lab
+      obs-lab.scenario: "05-jenkins"

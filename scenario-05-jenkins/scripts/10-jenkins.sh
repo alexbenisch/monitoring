@@ -49,6 +49,9 @@ helm upgrade --install jenkins jenkins/jenkins \
 log "waiting for the controller"
 kubectl -n "$NS" rollout status statefulset/jenkins --timeout=10m
 
+log "applying the Jenkins alerts and Grafana dashboard"
+kubectl apply -k "${ROOT_DIR}/k8s/monitoring" >/dev/null
+
 cat <<EOF
 
 Jenkins is installed.

@@ -1,0 +1,99 @@
+# Alerts on Jenkins and the hello-java pipeline, from the metrics the
+# prometheus plugin serves at /prometheus.
+#
+# Two things about those metrics shape every rule below:
+#
+# - Most hello-java builds are skipped polling runs (the path filter), and
+#   they finish SUCCESS. Anything based on "last build" is overwritten by the
+#   next skipped build within minutes, so a failure would alert and then
+#   clear itself. Failures are counted instead: total builds minus
+#   successful ones, which no later build can undo.
+# - Counters restart from zero with Jenkins, and each restart is a new
+#   series (new pod IP). increase() copes with resets; sum() folds the series
+#   back together.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: jenkins-rules
+  namespace: cicd
+  labels:
+    # Prometheus only loads rules carrying its release label, the same as
+    # ServiceMonitors.
+    release: kube-prom-stack
+spec:
+  groups:
+    - name: jenkins.rules
+      interval: 30s
+      rules:
+        # The failed-build counter only exists once a build has failed, so it
+        # cannot be relied on. total - success exists from the first build.
+        - record: job:jenkins_builds_failed:increase1h
+          expr: |
+            sum by (jenkins_job) (increase(default_jenkins_builds_total_build_count_total[1h]))
+            -
+            sum by (jenkins_job) (increase(default_jenkins_builds_success_build_count_total[1h]))
+
+    - name: jenkins.alerts
+      rules:
+        - alert: JenkinsDown
+          # absent() covers the target disappearing altogether, which up == 0
+          # cannot: no series, nothing to compare.
+          expr: up{job="jenkins"} == 0 or absent(up{job="jenkins"})
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: Jenkins is not being scraped
+            description: >-
+              Prometheus has not reached http://jenkins:8080/prometheus for
+              5 minutes. After a host reboot, give the controller a few
+              minutes first - the init container can take a couple of tries.
+
+        - alert: JenkinsPluginsFailed
+          expr: max(jenkins_plugins_failed{job="jenkins"}) > 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $value }} Jenkins plugin(s) failed to load"
+            description: >-
+              A plugin that fails to load takes everything depending on it
+              down with it - the last time, that was Pipeline itself. Check
+              the controller log for SEVERE lines.
+
+        - alert: JenkinsBuildFailed
+          expr: job:jenkins_builds_failed:increase1h > 0
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.jenkins_job }} has failed builds in the last hour"
+            description: >-
+              {{ $value | humanize }} failed build(s) of
+              {{ $labels.jenkins_job }} in the last hour. Resolves on its own
+              an hour after the last failure.
+
+        - alert: JenkinsQueueStuck
+          # With ephemeral agents, a queued build is waiting for its pod. More
+          # than 10 minutes means the pod cannot be scheduled or cannot start:
+          # out of memory on the node, or an image that will not pull.
+          expr: max(jenkins_queue_size_value{job="jenkins"}) > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: Jenkins builds have been queued for 10 minutes
+            description: >-
+              {{ $value }} build(s) waiting. Check for Pending agent pods:
+              kubectl -n cicd get pods
+
+        - alert: JenkinsHeapHigh
+          expr: max(vm_memory_heap_usage{job="jenkins"}) > 0.9
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Jenkins heap at {{ $value | humanizePercentage }}"
+            description: >-
+              The controller is capped at 1.5 GiB with the heap sized to 65%
+              of it. Sustained use above 90% ends in long GC pauses or an
+              OOM kill.
